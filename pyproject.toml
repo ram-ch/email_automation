@@ -1,0 +1,19 @@
+[project]
+name = "hotel-aiemail"
+version = "0.1.0"
+description = "AI email agent for hotel guest emails"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.52.0",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.34.0",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.25.0",
+    "httpx>=0.28.0",
+]

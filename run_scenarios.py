@@ -29,6 +29,11 @@ def print_result(title: str, result):
 
 def main():
     settings = Settings()
+    # Mock data uses 2025 dates — simulate being in April 2025 so the model picks the right year
+    demo_settings = Settings(
+        anthropic_api_key=settings.anthropic_api_key,
+        simulated_today="2025-04-15",
+    )
     pms = PMS(settings.data_path)
 
     # Scenario 1: Read-only lookup
@@ -38,12 +43,17 @@ def main():
             email_body="Do you have any available rooms April 20th-22nd?",
             sender_email="someone@email.com",
             pms=pms,
-            settings=settings,
+            settings=demo_settings,
         ),
     )
 
     # Scenario 2: Booking action (human approval mode)
     pms_booking = PMS(settings.data_path)  # Fresh state
+    booking_settings = Settings(
+        anthropic_api_key=settings.anthropic_api_key,
+        approval_mode="human_approval",
+        simulated_today="2025-04-15",
+    )
     result = process_email(
         email_body=(
             "Hi, we'd like to book a double room with breakfast for 2 adults "
@@ -51,7 +61,7 @@ def main():
         ),
         sender_email="erik.hansen@email.com",
         pms=pms_booking,
-        settings=Settings(anthropic_api_key=settings.anthropic_api_key, approval_mode="human_approval"),
+        settings=booking_settings,
     )
     print_result("Scenario 2: Booking (Human Approval Mode)", result)
 
@@ -62,13 +72,18 @@ def main():
 
     # Scenario 3: Ambiguous/risky request
     pms_escalation = PMS(settings.data_path)
+    escalation_settings = Settings(
+        anthropic_api_key=settings.anthropic_api_key,
+        approval_mode="autonomous",
+        simulated_today="2025-04-15",
+    )
     print_result(
         "Scenario 3: Ambiguous/Risky Request (Autonomous Mode)",
         process_email(
             email_body="I want a refund on my non-refundable booking.",
             sender_email="maria.gonzalez@email.com",
             pms=pms_escalation,
-            settings=Settings(anthropic_api_key=settings.anthropic_api_key, approval_mode="autonomous"),
+            settings=escalation_settings,
         ),
     )
 

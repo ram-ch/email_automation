@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     approval_mode: Literal["human_approval", "autonomous"] = "human_approval"
     max_iterations: int = 15
     data_path: str = "data/mock_hotel_data.json"
+    simulated_today: str = ""  # Override today's date for demo (YYYY-MM-DD), empty = use real date
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

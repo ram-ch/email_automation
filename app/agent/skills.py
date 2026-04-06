@@ -267,7 +267,7 @@ def get_skill_schemas() -> list[dict]:
         {
             "name": "book_room",
             "description": "Book a room for a guest. Searches for the guest by email, checks availability, and creates a reservation.",
-            "parameters": {
+            "input_schema": {
                 "type": "object",
                 "properties": {
                     "guest_email": {"type": "string", "description": "Guest email address"},
@@ -288,7 +288,7 @@ def get_skill_schemas() -> list[dict]:
         {
             "name": "cancel_reservation",
             "description": "Cancel an existing reservation. Checks if the reservation is non-refundable and escalates if so.",
-            "parameters": {
+            "input_schema": {
                 "type": "object",
                 "properties": {
                     "reservation_id": {"type": "string", "description": "Reservation ID to cancel"},
@@ -299,7 +299,7 @@ def get_skill_schemas() -> list[dict]:
         {
             "name": "modify_reservation",
             "description": "Modify an existing reservation (dates, guest count, room type, or rate plan).",
-            "parameters": {
+            "input_schema": {
                 "type": "object",
                 "properties": {
                     "reservation_id": {"type": "string", "description": "Reservation ID to modify"},
@@ -316,7 +316,7 @@ def get_skill_schemas() -> list[dict]:
         {
             "name": "escalate_to_human",
             "description": "Escalate the conversation to a human staff member when the request is outside policy or requires special approval.",
-            "parameters": {
+            "input_schema": {
                 "type": "object",
                 "properties": {
                     "reason": {"type": "string", "description": "Reason for escalation"},

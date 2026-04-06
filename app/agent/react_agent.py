@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 
 import anthropic
 
@@ -22,6 +23,9 @@ def process_email(
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
     all_tools = get_tool_schemas() + get_skill_schemas()
 
+    # Determine today's date (support simulated date for demo with mock data)
+    today = date.fromisoformat(settings.simulated_today) if settings.simulated_today else None
+
     messages = [
         {
             "role": "user",
@@ -35,19 +39,29 @@ def process_email(
         response = client.messages.create(
             model=settings.model,
             max_tokens=4096,
-            system=get_system_prompt(),
+            system=get_system_prompt(today=today),
             tools=all_tools,
             messages=messages,
         )
 
         # Check if the model wants to use tools
         if response.stop_reason == "tool_use":
-            # Process all tool calls in the response
-            assistant_content = response.content
+            # Serialize assistant content blocks for the message history
+            assistant_content = []
+            for block in response.content:
+                if block.type == "text":
+                    assistant_content.append({"type": "text", "text": block.text})
+                elif block.type == "tool_use":
+                    assistant_content.append({
+                        "type": "tool_use",
+                        "id": block.id,
+                        "name": block.name,
+                        "input": block.input,
+                    })
             messages.append({"role": "assistant", "content": assistant_content})
 
             tool_results = []
-            for block in assistant_content:
+            for block in response.content:
                 if block.type == "tool_use":
                     tool_name = block.name
                     tool_input = block.input

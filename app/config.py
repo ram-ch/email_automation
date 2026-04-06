@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     anthropic_api_key: str = ""
-    model: str = "claude-opus-4-20250514"
+    model: str = "claude-sonnet-4-20250514"
     approval_mode: Literal["human_approval", "autonomous"] = "human_approval"
     max_iterations: int = 15
     data_path: str = "data/mock_hotel_data.json"

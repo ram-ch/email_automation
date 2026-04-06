@@ -84,22 +84,20 @@ class ActionStep(BaseModel):
 
 
 class SkillResult(BaseModel):
+    model_config = {"arbitrary_types_allowed": True}
+
     skill_name: str
     action_plan: list[ActionStep]
     draft_reply: str
     requires_approval: bool = False
     risk_flag: str | None = None
 
-    class Config:
-        arbitrary_types_allowed = True
-
 
 class AgentResponse(BaseModel):
+    model_config = {"arbitrary_types_allowed": True}
+
     draft_reply: str
     action_plan: list[ActionStep]
     requires_approval: bool = False
     risk_flag: str | None = None
     conversation_history: list = []
-
-    class Config:
-        arbitrary_types_allowed = True

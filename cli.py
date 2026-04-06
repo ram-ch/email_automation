@@ -2,52 +2,64 @@
 
 Usage: uv run python cli.py
 """
+import sys
+import threading
+import time
+
 from app.agent.react_agent import process_email
 from app.config import Settings
 from app.services.pms import PMS
 
 
+def spinner(stop_event):
+    chars = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+    i = 0
+    while not stop_event.is_set():
+        sys.stdout.write(f"\r  {chars[i % len(chars)]} Thinking...")
+        sys.stdout.flush()
+        time.sleep(0.1)
+        i += 1
+    sys.stdout.write("\r" + " " * 30 + "\r")
+    sys.stdout.flush()
+
+
 def main():
     settings = Settings(simulated_today="2025-04-15")
     pms = PMS(settings.data_path)
+    sender = ""
 
-    print("=" * 60)
-    print("  Grand Oslo Hotel — AI Email Agent (Interactive CLI)")
-    print("=" * 60)
-    print(f"  Mode: {settings.approval_mode}")
-    print(f"  Model: {settings.model}")
-    print(f"  Simulated date: 2025-04-15")
     print()
-    print("  Commands:")
-    print("    /mode auto     — switch to autonomous mode")
-    print("    /mode human    — switch to human approval mode")
-    print("    /approve       — approve pending actions")
-    print("    /reset         — reset PMS to fresh state")
-    print("    /quit          — exit")
+    print("=" * 60)
+    print("  Grand Oslo Hotel — AI Email Agent")
+    print("=" * 60)
+    print(f"  Mode: {settings.approval_mode} | Model: {settings.model}")
+    print()
+    print("  Commands: /mode auto, /mode human, /approve, /reset, /quit")
     print("=" * 60)
 
     pending_result = None
 
     while True:
         print()
-        sender = input("From (email): ").strip()
-        if not sender:
-            continue
-        if sender.startswith("/"):
-            cmd = sender
+
+        # Get sender email (remember last one)
+        prompt = f"From [{sender}]: " if sender else "From (email): "
+        new_sender = input(prompt).strip()
+        if new_sender.startswith("/"):
+            cmd = new_sender
         else:
-            print("Email body (type your message, then press Enter twice to send):")
-            lines = []
-            while True:
-                line = input()
-                if line == "":
-                    if lines:
-                        break
-                    continue
-                lines.append(line)
-            email_body = "\n".join(lines)
+            if new_sender:
+                sender = new_sender
+            if not sender:
+                print("  Please enter an email address.")
+                continue
+
+            email_body = input("Message: ").strip()
+            if not email_body:
+                continue
             cmd = None
 
+        # Handle commands
         if cmd:
             if cmd == "/quit":
                 print("Goodbye!")
@@ -56,7 +68,6 @@ def main():
                 pms = PMS(settings.data_path)
                 pending_result = None
                 print("  PMS reset to fresh state.")
-                continue
             elif cmd == "/mode auto":
                 settings = Settings(
                     anthropic_api_key=settings.anthropic_api_key,
@@ -64,7 +75,6 @@ def main():
                     simulated_today="2025-04-15",
                 )
                 print("  Switched to autonomous mode.")
-                continue
             elif cmd == "/mode human":
                 settings = Settings(
                     anthropic_api_key=settings.anthropic_api_key,
@@ -72,7 +82,6 @@ def main():
                     simulated_today="2025-04-15",
                 )
                 print("  Switched to human approval mode.")
-                continue
             elif cmd == "/approve":
                 if pending_result and hasattr(pending_result, "execute_pending") and callable(pending_result.execute_pending):
                     pending_result.execute_pending(pms)
@@ -80,44 +89,47 @@ def main():
                     pending_result = None
                 else:
                     print("  No pending actions to approve.")
-                continue
             else:
                 print(f"  Unknown command: {cmd}")
-                continue
+            continue
 
-        print()
-        print("  Processing...")
-        print()
+        # Process email with spinner
+        stop = threading.Event()
+        t = threading.Thread(target=spinner, args=(stop,))
+        t.start()
 
-        result = process_email(
-            email_body=email_body,
-            sender_email=sender,
-            pms=pms,
-            settings=settings,
-        )
+        try:
+            result = process_email(
+                email_body=email_body,
+                sender_email=sender,
+                pms=pms,
+                settings=settings,
+            )
+        finally:
+            stop.set()
+            t.join()
 
-        # Show action plan if any
+        # Show action plan
         if result.action_plan:
             print("--- Action Plan ---")
             for i, step in enumerate(result.action_plan, 1):
                 print(f"  {i}. [{step.status}] {step.description}")
             print()
 
-        # Show risk flag if any
+        # Show risk flag
         if result.risk_flag:
-            print(f"--- Escalated ---")
+            print("--- Escalated ---")
             print(f"  {result.risk_flag}")
             print()
 
         # Show draft reply
         print("--- Draft Reply ---")
         print(result.draft_reply)
-        print()
 
         # Approval status
         if result.requires_approval:
-            print("--- Requires Approval ---")
-            print("  Type /approve to execute pending actions.")
+            print()
+            print("--- Requires Approval: type /approve to execute ---")
             pending_result = result
         else:
             pending_result = None

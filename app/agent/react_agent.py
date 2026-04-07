@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import date
+from typing import Callable
 
 import anthropic
 
@@ -46,6 +47,7 @@ def process_email(
     sender_email: str,
     pms: PMS,
     settings: Settings,
+    log_callback: Callable[[dict], None] | None = None,
 ) -> AgentResponse:
     """Process a guest email through the ReAct agent loop."""
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
@@ -60,6 +62,12 @@ def process_email(
             "content": f"From: {sender_email}\n\n{email_body}",
         }
     ]
+
+    def _log(entry: dict) -> None:
+        if log_callback:
+            log_callback(entry)
+
+    _log({"type": "incoming", "sender": sender_email, "body": email_body})
 
     all_skill_results: list[SkillResult] = []
 
@@ -112,6 +120,15 @@ def process_email(
                     else:
                         tool_result_str = execute_tool(tool_name, tool_input, pms)
 
+                    is_skill = tool_name in skill_names
+                    _log({
+                        "type": "skill" if is_skill else "tool",
+                        "name": tool_name,
+                        "input": tool_input,
+                        "result_summary": tool_result_str[:200],
+                        "iteration": _iteration + 1,
+                    })
+
                     tool_results.append({
                         "type": "tool_result",
                         "tool_use_id": block.id,
@@ -148,6 +165,13 @@ def process_email(
                 requires_approval = True
             elif settings.approval_mode == "human_approval" and len(action_plan) > 0:
                 requires_approval = True
+
+            _log({
+                "type": "result",
+                "has_actions": len(action_plan) > 0,
+                "requires_approval": requires_approval,
+                "risk_flag": risk_flag,
+            })
 
             return AgentResponse(
                 draft_reply=draft_reply,

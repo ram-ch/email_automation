@@ -34,7 +34,7 @@ class EmailResponse(BaseModel):
     status: str
 
 
-def _get_hotel_info(pms: PMS) -> dict:
+def _get_hotel_info(pms: PMS, sender_email: str = "") -> dict:
     """Get hotel info for the email template."""
     hotel = pms.get_hotel_info()
     return {
@@ -42,6 +42,7 @@ def _get_hotel_info(pms: PMS) -> dict:
         "hotel_address": hotel.address,
         "hotel_phone": hotel.phone,
         "hotel_email": hotel.email,
+        "sender_email": sender_email,
     }
 
 
@@ -171,7 +172,7 @@ def create_app(settings: Settings | None = None, pms: PMS | None = None) -> Fast
     ):
         _pms = app.state.pms
         _settings = app.state.settings
-        hotel_info = _get_hotel_info(_pms)
+        hotel_info = _get_hotel_info(_pms, sender_email=request.sender_email)
 
         result = process_email(
             email_body=request.body,

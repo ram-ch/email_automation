@@ -22,11 +22,24 @@ def render_email_html(
     hotel_address: str,
     hotel_phone: str,
     hotel_email: str,
+    sender_email: str = "",
 ) -> str:
     """Render a guest email as branded HTML with inline CSS."""
     # Convert markdown formatting to HTML, then newlines to <br>
     body_html = _markdown_to_html(body_text)
     body_html = body_html.replace("\n", "<br>\n")
+
+    # To/From header
+    to_from_html = ""
+    if sender_email:
+        to_from_html = f"""
+  <!-- To/From -->
+  <tr>
+    <td style="padding:16px 40px 0; font-size:13px; color:#888; line-height:1.6;">
+      <strong style="color:#555;">From:</strong> {hotel_email}<br>
+      <strong style="color:#555;">To:</strong> {sender_email}
+    </td>
+  </tr>"""
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -35,22 +48,23 @@ def render_email_html(
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
 <body style="margin:0; padding:0; background-color:#f4f4f4; font-family:Georgia, 'Times New Roman', serif;">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#f4f4f4; padding:32px 0;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#f4f4f4; padding:24px 0;">
 <tr><td align="center">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:800px; background-color:#ffffff; border-radius:4px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:960px; background-color:#ffffff; border-radius:4px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,0.08);">
 
   <!-- Header -->
   <tr>
-    <td style="background-color:#1a3c5e; padding:28px 40px; text-align:center;">
-      <h1 style="margin:0; color:#ffffff; font-size:22px; font-weight:normal; letter-spacing:1px;">
+    <td style="background-color:#1a3c5e; padding:16px 40px; text-align:center;">
+      <h1 style="margin:0; color:#ffffff; font-size:18px; font-weight:normal; letter-spacing:1px;">
         {hotel_name}
       </h1>
     </td>
   </tr>
+  {to_from_html}
 
   <!-- Body -->
   <tr>
-    <td style="padding:36px 40px; color:#2c2c2c; font-size:15px; line-height:1.7;">
+    <td style="padding:28px 40px; color:#2c2c2c; font-size:15px; line-height:1.7;">
       {body_html}
     </td>
   </tr>

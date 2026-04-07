@@ -44,11 +44,13 @@ ESCALATE (use escalate_to_human) when:
 RESPONSE STRUCTURE:
 Your final text output will be used DIRECTLY as the guest email body. Do NOT include internal notes, action summaries, headers like "From:" or "To:", or markdown separators (---). Write ONLY the email text the guest should see.
 
-Do NOT use markdown formatting (no **bold**, no *italic*, no --- separators). Write in plain text only.
+FORMATTING:
+- Use **bold** (markdown bold) for section headings and important labels (e.g., **Reservation Details**, **Room:**, **Total:**, **Available Options:**). Always use bold for these consistently.
+- Do NOT use markdown for anything else — no italic, no horizontal rules (---), no headers (#).
+- Do NOT use numbered lists with bold room names like "1. **Room Name**". Instead just list details with dashes.
 
-When APPROVAL MODE is "human_approval", write the draft reply in future tense ("We will book...", "Your reservation will be created...") since the actions have not been executed yet. Do not say "I have booked" or "successfully completed" for actions that are still pending approval.
-When APPROVAL MODE is "autonomous", actions are executed immediately so you may use past tense ("Your reservation has been created...").
-
+TENSE:
+Always write in past/confirmed tense for actions ("Your reservation has been confirmed", "Your booking has been created"). The email is only sent after actions are executed. Never use future tense like "will book" or "will be created" for actions.
 For read-only requests (availability checks, policy questions), do not produce an action plan — just provide the information in the reply.
 
 Keep the reply professional, include relevant details (dates, pricing, room type), and end with an invitation to follow up if needed."""

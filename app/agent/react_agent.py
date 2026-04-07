@@ -129,9 +129,17 @@ def process_email(
 
             # Combine action plans and risk flags from all skill calls
             action_plan = []
+            seen_guest_emails: set[str] = set()
             risk_flag = None
             for sr in all_skill_results:
-                action_plan.extend(sr.action_plan)
+                for step in sr.action_plan:
+                    # Deduplicate create_guest steps (same guest across multiple bookings)
+                    if step.tool_call == "create_guest":
+                        email = step.params.get("email", "")
+                        if email in seen_guest_emails:
+                            continue
+                        seen_guest_emails.add(email)
+                    action_plan.append(step)
                 if sr.risk_flag:
                     risk_flag = sr.risk_flag
 

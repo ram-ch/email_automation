@@ -45,6 +45,41 @@ def _get_hotel_info(pms: PMS) -> dict:
     }
 
 
+def _summarize_result(tool_name: str, raw_summary: str) -> str:
+    """Generate a short, clean summary for a tool/skill result."""
+    try:
+        parsed = json.loads(raw_summary)
+    except Exception:
+        parsed = None
+
+    if parsed and isinstance(parsed, dict):
+        if "error" in parsed:
+            return parsed["error"]
+        if "found" in parsed:
+            if parsed["found"] and "guest" in parsed:
+                guest = parsed["guest"]
+                return f"found {guest.get('id', '')} ({guest.get('first_name', '')} {guest.get('last_name', '')})"
+            return "not found"
+        if "skill_name" in parsed:
+            return "action plan ready"
+
+    # Name-based fallbacks for results too large to parse
+    fallbacks = {
+        "check_availability": "availability loaded",
+        "get_rate_plans": "rate plans loaded",
+        "get_policies": "policies loaded",
+        "get_hotel_info": "hotel info loaded",
+        "get_reservation": "reservation found",
+        "get_guest_reservations": "reservations loaded",
+        "search_guest": "lookup complete",
+        "book_room": "action plan ready",
+        "cancel_reservation": "action plan ready",
+        "modify_reservation": "action plan ready",
+        "escalate_to_human": "escalated",
+    }
+    return fallbacks.get(tool_name, "done")
+
+
 def _terminal_log(entry: dict) -> None:
     """Print agent activity to the server terminal in real time."""
     t = entry.get("type", "")
@@ -57,28 +92,12 @@ def _terminal_log(entry: dict) -> None:
         print(f"{'━' * 56}")
     elif t in ("tool", "skill"):
         label = "skill" if t == "skill" else "tool"
+        name = entry.get("name", "")
         summary = entry.get("result_summary", "")
-        try:
-            parsed = json.loads(summary)
-            if "found" in parsed:
-                short = f"found={parsed['found']}"
-            elif "availability" in parsed:
-                short = "availability loaded"
-            elif "rate_plans" in parsed:
-                short = f"{len(parsed['rate_plans'])} plans"
-            elif "skill_name" in parsed:
-                short = "action plan ready"
-            elif "reservation" in parsed:
-                short = "reservation found"
-            elif "reservations" in parsed:
-                short = f"{len(parsed['reservations'])} reservations"
-            elif "error" in parsed:
-                short = parsed["error"]
-            else:
-                short = summary[:60]
-        except Exception:
-            short = summary[:60]
-        print(f"  [iteration {entry.get('iteration', '?')}] {label}: {entry['name']} -> {short}")
+
+        # Try to parse JSON for dynamic info, fall back to name-based summary
+        short = _summarize_result(name, summary)
+        print(f"  [iteration {entry.get('iteration', '?')}] {label}: {name} -> {short}")
     elif t == "result":
         if entry.get("risk_flag"):
             print(f"\n  ⚠️  Escalated: {entry['risk_flag']}")

@@ -4,7 +4,7 @@ Usage: uv run python run_scenarios.py
 Set ANTHROPIC_API_KEY in .env or environment before running.
 """
 from app.agent.react_agent import process_email
-from app.config import Settings
+from app.config import Settings, load_settings
 from app.services.pms import PMS
 
 
@@ -28,12 +28,8 @@ def print_result(title: str, result):
 
 
 def main():
-    settings = Settings()
-    # Mock data uses 2025 dates — simulate being in April 2025 so the model picks the right year
-    demo_settings = Settings(
-        anthropic_api_key=settings.anthropic_api_key,
-        simulated_today="2025-04-15",
-    )
+    settings = load_settings(simulated_today="2025-04-15")
+    demo_settings = settings
     pms = PMS(settings.data_path)
 
     # Scenario 1: Read-only lookup
@@ -49,11 +45,7 @@ def main():
 
     # Scenario 2: Booking action (human approval mode)
     pms_booking = PMS(settings.data_path)  # Fresh state
-    booking_settings = Settings(
-        anthropic_api_key=settings.anthropic_api_key,
-        approval_mode="human_approval",
-        simulated_today="2025-04-15",
-    )
+    booking_settings = load_settings(approval_mode="human_approval", simulated_today="2025-04-15")
     result = process_email(
         email_body=(
             "Hi, we'd like to book a double room with breakfast for 2 adults "
@@ -72,11 +64,7 @@ def main():
 
     # Scenario 3: Ambiguous/risky request
     pms_escalation = PMS(settings.data_path)
-    escalation_settings = Settings(
-        anthropic_api_key=settings.anthropic_api_key,
-        approval_mode="autonomous",
-        simulated_today="2025-04-15",
-    )
+    escalation_settings = load_settings(approval_mode="autonomous", simulated_today="2025-04-15")
     print_result(
         "Scenario 3: Ambiguous/Risky Request (Autonomous Mode)",
         process_email(

@@ -7,7 +7,7 @@ import threading
 import time
 
 from app.agent.react_agent import process_email
-from app.config import Settings
+from app.config import Settings, load_settings
 from app.services.pms import PMS
 
 
@@ -24,7 +24,7 @@ def spinner(stop_event):
 
 
 def main():
-    settings = Settings(simulated_today="2025-04-15")
+    settings = load_settings(simulated_today="2025-04-15")
     pms = PMS(settings.data_path)
     sender = ""
 
@@ -69,18 +69,10 @@ def main():
                 pending_result = None
                 print("  PMS reset to fresh state.")
             elif cmd == "/mode auto":
-                settings = Settings(
-                    anthropic_api_key=settings.anthropic_api_key,
-                    approval_mode="autonomous",
-                    simulated_today="2025-04-15",
-                )
+                settings.approval_mode = "autonomous"
                 print("  Switched to autonomous mode.")
             elif cmd == "/mode human":
-                settings = Settings(
-                    anthropic_api_key=settings.anthropic_api_key,
-                    approval_mode="human_approval",
-                    simulated_today="2025-04-15",
-                )
+                settings.approval_mode = "human_approval"
                 print("  Switched to human approval mode.")
             elif cmd == "/approve":
                 if pending_result and hasattr(pending_result, "execute_pending") and callable(pending_result.execute_pending):

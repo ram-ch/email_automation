@@ -111,7 +111,7 @@ def main():
         if result.action_plan:
             print("--- Action Plan ---")
             for i, step in enumerate(result.action_plan, 1):
-                print(f"  {i}. [{step.status}] {step.description}")
+                print(f"  {i}. {step.description}")
             print()
 
         # Show risk flag

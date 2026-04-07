@@ -1,4 +1,4 @@
-from app.templates import render_email_html, render_preview_html
+from app.templates import render_email_html, render_preview_html, _markdown_to_html
 
 
 def test_render_email_html_contains_body():
@@ -56,6 +56,32 @@ def test_render_rejection_email():
     )
     assert "being reviewed" in html
     assert "Grand Oslo Hotel" in html
+
+
+def test_markdown_bold_converted():
+    """Markdown **bold** is converted to <strong> tags."""
+    html = render_email_html(
+        body_text="Room: **Standard Double** - 1,800 NOK",
+        hotel_name="Hotel",
+        hotel_address="Addr",
+        hotel_phone="Phone",
+        hotel_email="e@h.com",
+    )
+    assert "<strong>Standard Double</strong>" in html
+    assert "**" not in html.split("<strong>")[0]  # no raw markdown
+
+
+def test_markdown_separator_converted():
+    """Markdown --- separator is converted to <hr> tag."""
+    html = render_email_html(
+        body_text="First section\n---\nSecond section",
+        hotel_name="Hotel",
+        hotel_address="Addr",
+        hotel_phone="Phone",
+        hotel_email="e@h.com",
+    )
+    assert "<hr" in html
+    assert "---" not in html.replace("<!-", "")  # no raw --- (ignoring HTML comments)
 
 
 def test_render_preview_html_contains_metadata():

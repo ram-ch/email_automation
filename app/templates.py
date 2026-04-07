@@ -1,6 +1,19 @@
 from __future__ import annotations
 
+import re
 from html import escape
+
+
+def _markdown_to_html(text: str) -> str:
+    """Convert basic markdown formatting to HTML."""
+    # Bold: **text** → <strong>text</strong>
+    text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
+    # Italic: *text* → <em>text</em>
+    text = re.sub(r'\*(.+?)\*', r'<em>\1</em>', text)
+    # Horizontal rules: --- or ___ on their own line → <hr>
+    text = re.sub(r'\n---+\n', '\n<hr style="border:none; border-top:1px solid #e0e0e0; margin:16px 0;">\n', text)
+    text = re.sub(r'^---+\n', '<hr style="border:none; border-top:1px solid #e0e0e0; margin:16px 0;">\n', text)
+    return text
 
 
 def render_email_html(
@@ -11,8 +24,9 @@ def render_email_html(
     hotel_email: str,
 ) -> str:
     """Render a guest email as branded HTML with inline CSS."""
-    # Convert plain text newlines to HTML line breaks
-    body_html = body_text.replace("\n", "<br>\n")
+    # Convert markdown formatting to HTML, then newlines to <br>
+    body_html = _markdown_to_html(body_text)
+    body_html = body_html.replace("\n", "<br>\n")
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -23,7 +37,7 @@ def render_email_html(
 <body style="margin:0; padding:0; background-color:#f4f4f4; font-family:Georgia, 'Times New Roman', serif;">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#f4f4f4; padding:32px 0;">
 <tr><td align="center">
-<table role="presentation" width="600" cellspacing="0" cellpadding="0" style="background-color:#ffffff; border-radius:4px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:800px; background-color:#ffffff; border-radius:4px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,0.08);">
 
   <!-- Header -->
   <tr>

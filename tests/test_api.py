@@ -106,7 +106,7 @@ def test_process_email_missing_fields(client):
 
 
 def test_process_email_html_format(client):
-    """response_format=html returns an HTML preview page."""
+    """response_format=html returns the email HTML directly."""
     mock_response = AgentResponse(
         draft_reply="We have rooms available for those dates.",
         action_plan=[],
@@ -126,61 +126,6 @@ def test_process_email_html_format(client):
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
     html = resp.text
-    assert "Agent Response" in html
-    assert "Guest Email Preview" in html
     assert "rooms available" in html
-    assert "COMPLETED" in html.upper()
-
-
-def test_process_email_html_format_with_actions(client):
-    """HTML preview includes action plan details."""
-    mock_response = AgentResponse(
-        draft_reply="Your room has been booked.",
-        action_plan=[
-            ActionStep(
-                description="Create reservation: Standard Double, Apr 24-26",
-                tool_call="create_reservation",
-                params={"guest_id": "G001"},
-            )
-        ],
-        requires_approval=False,
-        risk_flag=None,
-    )
-
-    with patch("app.main.process_email", return_value=mock_response):
-        resp = client.post(
-            "/process-email?response_format=html",
-            json={
-                "sender_email": "test@test.com",
-                "body": "Book a room.",
-            },
-        )
-
-    assert resp.status_code == 200
-    html = resp.text
-    assert "Create reservation: Standard Double" in html
-    assert "room has been booked" in html
-
-
-def test_process_email_html_format_escalated(client):
-    """HTML preview shows risk flag for escalated requests."""
-    mock_response = AgentResponse(
-        draft_reply="I have forwarded this to our team.",
-        action_plan=[],
-        requires_approval=True,
-        risk_flag="non-refundable cancellation",
-    )
-
-    with patch("app.main.process_email", return_value=mock_response):
-        resp = client.post(
-            "/process-email?response_format=html",
-            json={
-                "sender_email": "test@test.com",
-                "body": "Refund my booking.",
-            },
-        )
-
-    assert resp.status_code == 200
-    html = resp.text
-    assert "non-refundable cancellation" in html
-    assert "ESCALATED" in html.upper()
+    assert "Grand Oslo Hotel" in html
+    assert "<!DOCTYPE html>" in html

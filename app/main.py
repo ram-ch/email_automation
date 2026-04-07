@@ -10,7 +10,7 @@ from app.agent.react_agent import process_email, _execute_action_plan
 from app.config import Settings, load_settings
 from app.models import AgentResponse, SkillResult
 from app.services.pms import PMS
-from app.templates import render_email_html, render_preview_html
+from app.templates import render_email_html
 
 
 REJECTION_TEXT = (
@@ -210,15 +210,9 @@ def create_app(settings: Settings | None = None, pms: PMS | None = None) -> Fast
         else:
             email_response = _prompt_approval(result, _pms, hotel_info, _settings.approval_mode)
 
-        # Return HTML preview or JSON based on response_format
+        # Return HTML email or JSON based on response_format
         if response_format == "html":
-            return HTMLResponse(content=render_preview_html(
-                email_html=email_response.email_html,
-                action_plan=email_response.action_plan,
-                mode=email_response.mode,
-                status=email_response.status,
-                risk_flag=email_response.risk_flag,
-            ))
+            return HTMLResponse(content=email_response.email_html)
 
         return email_response
 

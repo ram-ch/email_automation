@@ -118,14 +118,20 @@ class TestScenarioBookingAction:
         assert len(result.action_plan) > 0
 
         # Verify no reservation created yet (human approval mode)
-        reservations_before = pms.get_reservations("G001")
-        count_before = len(reservations_before)
+        reservations = pms.get_reservations("G001")
+        original_count = len(reservations)
 
-        # Now approve — execute pending actions
-        if hasattr(result, "execute_pending") and callable(result.execute_pending):
-            result.execute_pending(pms)
-            new_reservations = pms.get_reservations("G001")
-            assert len(new_reservations) == count_before + 1
+        # Simulate approval — agent loop's _execute_action_plan does this
+        from app.agent.react_agent import _execute_action_plan
+        from app.models import SkillResult
+        skill_result = SkillResult(
+            skill_name="book_room",
+            action_plan=result.action_plan,
+            draft_reply=result.draft_reply,
+        )
+        _execute_action_plan(skill_result, pms)
+        new_reservations = pms.get_reservations("G001")
+        assert len(new_reservations) == original_count + 1
 
 
 class TestScenarioAmbiguousEscalation:

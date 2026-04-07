@@ -6,36 +6,6 @@ from app.models import ActionStep, SkillResult
 from app.services.pms import PMS
 
 
-class _PendingActions:
-    """Holds deferred actions that can be executed against the PMS."""
-
-    def __init__(self, actions: list[tuple[str, dict]]) -> None:
-        self.actions = actions
-
-    def __call__(self, pms: PMS) -> bool:
-        created_guest_id: str | None = None
-        for action_name, params in self.actions:
-            if action_name == "create_guest":
-                guest = pms.create_guest(**params)
-                created_guest_id = guest.id
-            elif action_name == "create_reservation":
-                p = dict(params)
-                if p.get("guest_id") == "__new_guest__" and created_guest_id:
-                    p["guest_id"] = created_guest_id
-                result = pms.create_reservation(**p)
-                if result is None:
-                    return False
-            elif action_name == "cancel_reservation":
-                result = pms.cancel_reservation(**params)
-                if result is None:
-                    return False
-            elif action_name == "modify_reservation":
-                result = pms.modify_reservation(**params)
-                if result is None:
-                    return False
-        return True
-
-
 def book_room(
     pms: PMS,
     guest_email: str,
@@ -51,7 +21,6 @@ def book_room(
     guest_nationality: str | None = None,
 ) -> SkillResult:
     steps: list[ActionStep] = []
-    actions: list[tuple[str, dict]] = []
 
     # 1. Look up or plan guest creation
     guest = pms.search_guest(guest_email)
@@ -66,19 +35,17 @@ def book_room(
                 risk_flag="missing_guest_info",
             )
         guest_id = "__new_guest__"
-        guest_params = {
-            "first_name": guest_first_name,
-            "last_name": guest_last_name,
-            "email": guest_email,
-            "phone": guest_phone,
-            "nationality": guest_nationality,
-        }
         steps.append(ActionStep(
             description=f"Create guest profile for {guest_first_name} {guest_last_name}",
             tool_call="create_guest",
-            params=guest_params,
+            params={
+                "first_name": guest_first_name,
+                "last_name": guest_last_name,
+                "email": guest_email,
+                "phone": guest_phone,
+                "nationality": guest_nationality,
+            },
         ))
-        actions.append(("create_guest", guest_params))
 
     # 2. Check availability
     ci = date.fromisoformat(check_in)
@@ -93,30 +60,27 @@ def book_room(
                 skill_name="book_room",
                 action_plan=[],
                 draft_reply=f"Sorry, {room_name} is not available for the requested dates ({check_in} to {check_out}).",
-                risk_flag=None,
             )
 
-    # 3. Calculate cost info for reply
+    # 3. Calculate cost
     rate_plan = pms.get_rate_plan(rate_plan_id)
     nights = (co - ci).days
     total = pms._calculate_total(room_type_id, rate_plan_id, check_in, check_out, adults)
 
     # 4. Plan reservation creation
-    res_params = {
-        "guest_id": guest_id,
-        "room_type_id": room_type_id,
-        "rate_plan_id": rate_plan_id,
-        "check_in": check_in,
-        "check_out": check_out,
-        "adults": adults,
-        "children": children,
-    }
     steps.append(ActionStep(
-        description=f"Create reservation for {room_name} from {check_in} to {check_out} ({nights} nights, {total:.0f} {pms.get_hotel_info().currency})",
+        description=f"Create reservation: {room_name}, {check_in} to {check_out}, {nights} night(s), {total:.0f} NOK",
         tool_call="create_reservation",
-        params=res_params,
+        params={
+            "guest_id": guest_id,
+            "room_type_id": room_type_id,
+            "rate_plan_id": rate_plan_id,
+            "check_in": check_in,
+            "check_out": check_out,
+            "adults": adults,
+            "children": children,
+        },
     ))
-    actions.append(("create_reservation", res_params))
 
     rate_name = rate_plan.name if rate_plan else rate_plan_id
     draft = (
@@ -125,14 +89,12 @@ def book_room(
         f"Total: {total:.0f} NOK for {nights} night(s)."
     )
 
-    result = SkillResult(
+    return SkillResult(
         skill_name="book_room",
         action_plan=steps,
         draft_reply=draft,
         requires_approval=True,
     )
-    object.__setattr__(result, "execute_actions", _PendingActions(actions))
-    return result
 
 
 def cancel_reservation(pms: PMS, reservation_id: str) -> SkillResult:
@@ -145,7 +107,7 @@ def cancel_reservation(pms: PMS, reservation_id: str) -> SkillResult:
             risk_flag="reservation_not_found",
         )
 
-    # Check if non-refundable
+    # Non-refundable → escalate
     rate_plan = pms.get_rate_plan(reservation.rate_plan_id)
     if rate_plan and rate_plan.cancellation_policy == "non_refundable":
         return SkillResult(
@@ -159,25 +121,18 @@ def cancel_reservation(pms: PMS, reservation_id: str) -> SkillResult:
             requires_approval=True,
         )
 
-    steps = [
-        ActionStep(
-            description=f"Cancel reservation {reservation_id}",
-            tool_call="cancel_reservation",
-            params={"reservation_id": reservation_id},
-        )
-    ]
-    actions = [("cancel_reservation", {"reservation_id": reservation_id})]
-
-    draft = f"I will cancel reservation {reservation_id} (check-in: {reservation.check_in}, check-out: {reservation.check_out})."
-
-    result = SkillResult(
+    return SkillResult(
         skill_name="cancel_reservation",
-        action_plan=steps,
-        draft_reply=draft,
+        action_plan=[
+            ActionStep(
+                description=f"Cancel reservation {reservation_id}",
+                tool_call="cancel_reservation",
+                params={"reservation_id": reservation_id},
+            )
+        ],
+        draft_reply=f"I will cancel reservation {reservation_id} (check-in: {reservation.check_in}, check-out: {reservation.check_out}).",
         requires_approval=True,
     )
-    object.__setattr__(result, "execute_actions", _PendingActions(actions))
-    return result
 
 
 def modify_reservation(
@@ -199,7 +154,7 @@ def modify_reservation(
             risk_flag="reservation_not_found",
         )
 
-    # Check if non-refundable
+    # Non-refundable → can't modify
     rate_plan = pms.get_rate_plan(reservation.rate_plan_id)
     if rate_plan and rate_plan.cancellation_policy == "non_refundable":
         return SkillResult(
@@ -227,28 +182,20 @@ def modify_reservation(
     if rate_plan_id is not None:
         changes["rate_plan_id"] = rate_plan_id
 
-    modify_params = {"reservation_id": reservation_id, **changes}
-
     change_desc = ", ".join(f"{k}={v}" for k, v in changes.items())
-    steps = [
-        ActionStep(
-            description=f"Modify reservation {reservation_id}: {change_desc}",
-            tool_call="modify_reservation",
-            params=modify_params,
-        )
-    ]
-    actions = [("modify_reservation", modify_params)]
 
-    draft = f"I will update reservation {reservation_id} with the following changes: {change_desc}."
-
-    result = SkillResult(
+    return SkillResult(
         skill_name="modify_reservation",
-        action_plan=steps,
-        draft_reply=draft,
+        action_plan=[
+            ActionStep(
+                description=f"Modify reservation {reservation_id}: {change_desc}",
+                tool_call="modify_reservation",
+                params={"reservation_id": reservation_id, **changes},
+            )
+        ],
+        draft_reply=f"I will update reservation {reservation_id} with the following changes: {change_desc}.",
         requires_approval=True,
     )
-    object.__setattr__(result, "execute_actions", _PendingActions(actions))
-    return result
 
 
 def escalate_to_human(reason: str) -> SkillResult:
@@ -257,16 +204,15 @@ def escalate_to_human(reason: str) -> SkillResult:
         action_plan=[],
         draft_reply=f"I am escalating this to the hotel staff for further assistance. Reason: {reason}",
         risk_flag=f"Escalation: {reason}",
-        requires_approval=False,
     )
 
 
 def get_skill_schemas() -> list[dict]:
-    """Return tool-use schemas for all skills, suitable for LLM function calling."""
+    """Return tool-use schemas for all skills."""
     return [
         {
             "name": "book_room",
-            "description": "Book a room for a guest. Searches for the guest by email, checks availability, and creates a reservation.",
+            "description": "Book a room for a guest. Checks availability and creates a reservation.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -287,7 +233,7 @@ def get_skill_schemas() -> list[dict]:
         },
         {
             "name": "cancel_reservation",
-            "description": "Cancel an existing reservation. Checks if the reservation is non-refundable and escalates if so.",
+            "description": "Cancel an existing reservation. Escalates if non-refundable.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -315,7 +261,7 @@ def get_skill_schemas() -> list[dict]:
         },
         {
             "name": "escalate_to_human",
-            "description": "Escalate the conversation to a human staff member when the request is outside policy or requires special approval.",
+            "description": "Escalate to human when the request is ambiguous, involves a non-refundable refund, requires a policy exception, or you are unsure.",
             "input_schema": {
                 "type": "object",
                 "properties": {

@@ -3,7 +3,7 @@
 Usage: uv run python run_scenarios.py
 Set ANTHROPIC_API_KEY in .env or environment before running.
 """
-from app.agent.react_agent import process_email
+from app.agent.react_agent import process_email, _execute_action_plan
 from app.config import Settings, load_settings
 from app.services.pms import PMS
 
@@ -57,9 +57,15 @@ def main():
     )
     print_result("Scenario 2: Booking (Human Approval Mode)", result)
 
-    if result.requires_approval and hasattr(result, "execute_pending") and callable(result.execute_pending):
+    if result.requires_approval and result.action_plan:
         print("  >> Simulating approval... executing pending actions.")
-        result.execute_pending(pms_booking)
+        from app.models import SkillResult
+        skill_result = SkillResult(
+            skill_name="approved",
+            action_plan=result.action_plan,
+            draft_reply=result.draft_reply,
+        )
+        _execute_action_plan(skill_result, pms_booking)
         print("  >> Actions executed. Reservation created.\n")
 
     # Scenario 3: Ambiguous/risky request

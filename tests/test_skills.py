@@ -1,5 +1,7 @@
 from datetime import date
 
+from app.agent.react_agent import _execute_action_plan
+
 
 def test_book_room_produces_plan(pms):
     from app.agent.skills import book_room
@@ -31,9 +33,7 @@ def test_book_room_execute(pms):
         adults=2,
         children=0,
     )
-    # Execute the pending actions
-    executed = result.execute_actions(pms)
-    assert executed is True
+    _execute_action_plan(result, pms)
 
     # Verify reservation was created
     reservations = pms.get_reservations("G001")
@@ -59,7 +59,6 @@ def test_book_room_new_guest(pms):
         guest_nationality="NO",
     )
     assert result.skill_name == "book_room"
-    # Should include create_guest step
     assert "create_guest" in [step.tool_call for step in result.action_plan]
 
 
@@ -85,16 +84,13 @@ def test_cancel_reservation_standard(pms):
     assert result.risk_flag is None
     assert "cancel_reservation" in [step.tool_call for step in result.action_plan]
 
-    executed = result.execute_actions(pms)
-    assert executed is True
-
+    _execute_action_plan(result, pms)
     res = pms.get_reservation("RES001")
     assert res.status == "cancelled"
 
 
 def test_cancel_nonrefundable_escalates(pms):
     from app.agent.skills import cancel_reservation
-    # RES002 is non-refundable (RP003)
     result = cancel_reservation(pms=pms, reservation_id="RES002")
     assert result.risk_flag is not None
     assert "non-refundable" in result.risk_flag.lower() or "non_refundable" in result.risk_flag.lower()
@@ -119,8 +115,6 @@ def test_modify_reservation(pms):
     assert result.skill_name == "modify_reservation"
     assert result.risk_flag is None
 
-    executed = result.execute_actions(pms)
-    assert executed is True
-
+    _execute_action_plan(result, pms)
     res = pms.get_reservation("RES001")
     assert res.check_in == "2025-04-24"

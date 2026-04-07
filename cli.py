@@ -6,7 +6,7 @@ import sys
 import threading
 import time
 
-from app.agent.react_agent import process_email
+from app.agent.react_agent import process_email, _execute_action_plan
 from app.config import Settings, load_settings
 from app.services.pms import PMS
 
@@ -75,8 +75,14 @@ def main():
                 settings.approval_mode = "human_approval"
                 print("  Switched to human approval mode.")
             elif cmd == "/approve":
-                if pending_result and hasattr(pending_result, "execute_pending") and callable(pending_result.execute_pending):
-                    pending_result.execute_pending(pms)
+                if pending_result and pending_result.action_plan:
+                    from app.models import SkillResult
+                    skill_result = SkillResult(
+                        skill_name="approved",
+                        action_plan=pending_result.action_plan,
+                        draft_reply=pending_result.draft_reply,
+                    )
+                    _execute_action_plan(skill_result, pms)
                     print("  Actions executed successfully!")
                     pending_result = None
                 else:

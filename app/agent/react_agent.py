@@ -56,7 +56,7 @@ def process_email(
         }
     ]
 
-    skill_result: SkillResult | None = None
+    all_skill_results: list[SkillResult] = []
 
     for _iteration in range(settings.max_iterations):
         response = client.messages.create(
@@ -92,6 +92,7 @@ def process_email(
                     skill_names = {s["name"] for s in get_skill_schemas()}
                     if tool_name in skill_names:
                         skill_result = execute_skill(tool_name, tool_input, pms)
+                        all_skill_results.append(skill_result)
 
                         # In autonomous mode with no risk: execute the plan immediately
                         if settings.approval_mode == "autonomous" and not skill_result.risk_flag:
@@ -100,8 +101,8 @@ def process_email(
                         tool_result_str = json.dumps({
                             "skill_name": skill_result.skill_name,
                             "action_plan": [s.model_dump() for s in skill_result.action_plan],
-                            "draft_reply": skill_result.draft_reply,
                             "risk_flag": skill_result.risk_flag,
+                            "note": "Skill completed. If the guest requested additional actions, invoke the next skill now before writing your final reply.",
                         })
                     else:
                         tool_result_str = execute_tool(tool_name, tool_input, pms)
@@ -121,16 +122,19 @@ def process_email(
                 if hasattr(block, "text"):
                     draft_reply += block.text
 
-            # Determine approval requirement
-            action_plan = skill_result.action_plan if skill_result else []
-            risk_flag = skill_result.risk_flag if skill_result else None
-            requires_approval = False
+            # Combine action plans and risk flags from all skill calls
+            action_plan = []
+            risk_flag = None
+            for sr in all_skill_results:
+                action_plan.extend(sr.action_plan)
+                if sr.risk_flag:
+                    risk_flag = sr.risk_flag
 
-            if skill_result:
-                if risk_flag:
-                    requires_approval = True
-                elif settings.approval_mode == "human_approval" and len(action_plan) > 0:
-                    requires_approval = True
+            requires_approval = False
+            if risk_flag:
+                requires_approval = True
+            elif settings.approval_mode == "human_approval" and len(action_plan) > 0:
+                requires_approval = True
 
             return AgentResponse(
                 draft_reply=draft_reply,

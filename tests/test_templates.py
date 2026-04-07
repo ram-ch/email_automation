@@ -1,4 +1,4 @@
-from app.templates import render_email_html
+from app.templates import render_email_html, render_preview_html
 
 
 def test_render_email_html_contains_body():
@@ -56,3 +56,33 @@ def test_render_rejection_email():
     )
     assert "being reviewed" in html
     assert "Grand Oslo Hotel" in html
+
+
+def test_render_preview_html_contains_metadata():
+    """Preview page includes metadata panel and email."""
+    email_html = "<div>Test email content</div>"
+    html = render_preview_html(
+        email_html=email_html,
+        action_plan=[{"step": 1, "description": "Create reservation"}],
+        mode="autonomous",
+        status="completed",
+        risk_flag=None,
+    )
+    assert "Agent Response" in html
+    assert "Guest Email Preview" in html
+    assert "Create reservation" in html
+    assert "autonomous" in html
+    assert "Test email content" in html
+
+
+def test_render_preview_html_shows_risk_flag():
+    """Preview page shows risk flag when present."""
+    html = render_preview_html(
+        email_html="<div>Escalation email</div>",
+        action_plan=[],
+        mode="human_approval",
+        status="escalated",
+        risk_flag="non-refundable cancellation",
+    )
+    assert "non-refundable cancellation" in html
+    assert "Risk Flag" in html

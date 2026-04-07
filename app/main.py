@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import json
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from app.agent.react_agent import process_email, _execute_action_plan
 from app.config import Settings, load_settings
 from app.models import AgentResponse, SkillResult
 from app.services.pms import PMS
-from app.templates import render_email_html
+from app.templates import render_email_html, render_preview_html
 
 
 REJECTION_TEXT = (
@@ -144,8 +145,11 @@ def create_app(settings: Settings | None = None, pms: PMS | None = None) -> Fast
     app.state.pms = pms
     app.state.settings = settings
 
-    @app.post("/process-email", response_model=EmailResponse)
-    def handle_email(request: EmailRequest) -> EmailResponse:
+    @app.post("/process-email", response_model=None)
+    def handle_email(
+        request: EmailRequest,
+        response_format: str = Query(default="json", pattern="^(json|html)$"),
+    ):
         _pms = app.state.pms
         _settings = app.state.settings
         hotel_info = _get_hotel_info(_pms)
@@ -166,7 +170,7 @@ def create_app(settings: Settings | None = None, pms: PMS | None = None) -> Fast
         # Case 1: Escalated (risk flag, either mode)
         if result.risk_flag:
             print(f"  No PMS writes.")
-            return EmailResponse(
+            email_response = EmailResponse(
                 email_html=render_email_html(body_text=result.draft_reply, **hotel_info),
                 action_plan=action_plan_out,
                 mode=_settings.approval_mode,
@@ -176,9 +180,9 @@ def create_app(settings: Settings | None = None, pms: PMS | None = None) -> Fast
             )
 
         # Case 2: No actions (read-only)
-        if not result.action_plan:
+        elif not result.action_plan:
             print(f"\n  No actions required.")
-            return EmailResponse(
+            email_response = EmailResponse(
                 email_html=render_email_html(body_text=result.draft_reply, **hotel_info),
                 action_plan=[],
                 mode=_settings.approval_mode,
@@ -188,12 +192,12 @@ def create_app(settings: Settings | None = None, pms: PMS | None = None) -> Fast
             )
 
         # Case 3: Autonomous mode, no risk — already executed by the agent loop
-        if _settings.approval_mode == "autonomous":
+        elif _settings.approval_mode == "autonomous":
             print(f"\n  --- Action Plan (auto-executed) ---")
             for i, step in enumerate(result.action_plan, 1):
                 print(f"    {i}. {step.description}")
             print(f"  ✅ Actions auto-executed (autonomous mode).")
-            return EmailResponse(
+            email_response = EmailResponse(
                 email_html=render_email_html(body_text=result.draft_reply, **hotel_info),
                 action_plan=action_plan_out,
                 mode="autonomous",
@@ -203,7 +207,20 @@ def create_app(settings: Settings | None = None, pms: PMS | None = None) -> Fast
             )
 
         # Case 4: Human approval mode with actions — block for approval
-        return _prompt_approval(result, _pms, hotel_info, _settings.approval_mode)
+        else:
+            email_response = _prompt_approval(result, _pms, hotel_info, _settings.approval_mode)
+
+        # Return HTML preview or JSON based on response_format
+        if response_format == "html":
+            return HTMLResponse(content=render_preview_html(
+                email_html=email_response.email_html,
+                action_plan=email_response.action_plan,
+                mode=email_response.mode,
+                status=email_response.status,
+                risk_flag=email_response.risk_flag,
+            ))
+
+        return email_response
 
     return app
 

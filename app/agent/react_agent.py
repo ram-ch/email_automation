@@ -23,8 +23,13 @@ def _execute_action_plan(skill_result: SkillResult, pms: PMS) -> None:
 
     for step in skill_result.action_plan:
         if step.tool_call == "create_guest":
-            guest = pms.create_guest(**step.params)
-            created_guest_id = guest.id
+            # Skip if guest with this email already exists (e.g., second booking for same new guest)
+            existing = pms.search_guest(step.params.get("email", ""))
+            if existing:
+                created_guest_id = existing.id
+            else:
+                guest = pms.create_guest(**step.params)
+                created_guest_id = guest.id
         elif step.tool_call == "create_reservation":
             params = dict(step.params)
             if params.get("guest_id") == "__new_guest__" and created_guest_id:

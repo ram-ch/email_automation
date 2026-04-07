@@ -182,18 +182,53 @@ def modify_reservation(
     if rate_plan_id is not None:
         changes["rate_plan_id"] = rate_plan_id
 
+    # If room type is changing, validate availability for the new room type
+    effective_room = changes.get("room_type_id", reservation.room_type_id)
+    effective_ci = changes.get("check_in", reservation.check_in)
+    effective_co = changes.get("check_out", reservation.check_out)
+    effective_adults = changes.get("adults", reservation.adults)
+    effective_rate = changes.get("rate_plan_id", reservation.rate_plan_id)
+
+    ci = date.fromisoformat(str(effective_ci))
+    co = date.fromisoformat(str(effective_co))
+
+    if room_type_id is not None or check_in is not None or check_out is not None:
+        avail = pms.check_availability(ci, co)
+        for date_str, rooms in avail.items():
+            # Add 1 back for current reservation's room on its original dates
+            available = rooms.get(str(effective_room), 0)
+            if (str(effective_room) == reservation.room_type_id
+                and date_str >= reservation.check_in
+                and date_str < reservation.check_out):
+                available += 1
+            if available < 1:
+                new_room = pms.get_room_type(str(effective_room))
+                room_name = new_room.name if new_room else effective_room
+                return SkillResult(
+                    skill_name="modify_reservation",
+                    action_plan=[],
+                    draft_reply=f"Sorry, {room_name} is not available for the requested dates ({effective_ci} to {effective_co}).",
+                )
+
+    # Calculate new total
+    new_total = pms._calculate_total(
+        str(effective_room), str(effective_rate), str(effective_ci), str(effective_co), int(effective_adults)
+    )
+
     change_desc = ", ".join(f"{k}={v}" for k, v in changes.items())
+    new_room_type = pms.get_room_type(str(effective_room))
+    room_name = new_room_type.name if new_room_type else effective_room
 
     return SkillResult(
         skill_name="modify_reservation",
         action_plan=[
             ActionStep(
-                description=f"Modify reservation {reservation_id}: {change_desc}",
+                description=f"Modify reservation {reservation_id}: {change_desc} (new total: {new_total:.0f} NOK)",
                 tool_call="modify_reservation",
                 params={"reservation_id": reservation_id, **changes},
             )
         ],
-        draft_reply=f"I will update reservation {reservation_id} with the following changes: {change_desc}.",
+        draft_reply=f"I will update reservation {reservation_id}: {change_desc}. The new total will be {new_total:.0f} NOK for {room_name}.",
         requires_approval=True,
     )
 

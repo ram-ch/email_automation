@@ -17,6 +17,9 @@ def print_result(title: str, result):
         print("\n--- Action Plan ---")
         for i, step in enumerate(result.action_plan, 1):
             print(f"  {i}. {step.description}")
+    else:
+        print("\n--- Action Plan ---")
+        print("  (No actions — read-only request)")
 
     if result.risk_flag:
         print(f"\n--- Risk Flag ---\n  {result.risk_flag}")

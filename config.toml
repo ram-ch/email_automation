@@ -1,0 +1,12 @@
+[agent]
+model = "claude-sonnet-4-20250514"
+approval_mode = "human_approval"   # "human_approval" or "autonomous"
+max_iterations = 15
+
+[hotel]
+data_path = "data/mock_hotel_data.json"
+simulated_today = "2025-04-15"     # set to "" for real date
+
+[server]
+host = "0.0.0.0"
+port = 8000

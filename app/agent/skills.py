@@ -22,18 +22,11 @@ def book_room(
 ) -> SkillResult:
     steps: list[ActionStep] = []
 
-    # 1. Look up or plan guest creation
-    guest = pms.search_guest(guest_email)
-    if guest:
-        guest_id = guest.id
-    else:
-        if not all([guest_first_name, guest_last_name, guest_phone, guest_nationality]):
-            return SkillResult(
-                skill_name="book_room",
-                action_plan=[],
-                draft_reply="I need the guest's first name, last name, phone, and nationality to create a new profile.",
-                risk_flag="missing_guest_info",
-            )
+    # 1. Resolve guest: prefer provided details over PMS lookup
+    # This order ensures multi-booking works — both calls plan a create_guest step,
+    # and _execute_action_plan deduplicates at execution time.
+    has_all_details = all([guest_first_name, guest_last_name, guest_phone, guest_nationality])
+    if has_all_details:
         guest_id = "__new_guest__"
         steps.append(ActionStep(
             description=f"Create guest profile for {guest_first_name} {guest_last_name}",
@@ -46,6 +39,17 @@ def book_room(
                 "nationality": guest_nationality,
             },
         ))
+    else:
+        guest = pms.search_guest(guest_email)
+        if guest:
+            guest_id = guest.id
+        else:
+            return SkillResult(
+                skill_name="book_room",
+                action_plan=[],
+                draft_reply="I need the guest's first name, last name, phone, and nationality to create a new profile.",
+                risk_flag="missing_guest_info",
+            )
 
     # 2. Check availability
     ci = date.fromisoformat(check_in)

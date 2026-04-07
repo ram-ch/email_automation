@@ -34,7 +34,7 @@ def main():
     print("=" * 60)
     print(f"  Mode: {settings.approval_mode} | Model: {settings.model}")
     print()
-    print("  Commands: /mode auto, /mode human, /approve, /reset, /quit")
+    print("  Commands: /mode auto, /mode human, /approve, /reset, /debug, /quit")
     print("=" * 60)
 
     pending_result = None
@@ -74,6 +74,32 @@ def main():
             elif cmd == "/mode human":
                 settings.approval_mode = "human_approval"
                 print("  Switched to human approval mode.")
+            elif cmd.startswith("/debug"):
+                parts = cmd.split()
+                if len(parts) == 1:
+                    print("  /debug guests     — list all guests")
+                    print("  /debug res        — list all reservations")
+                    print("  /debug avail DATE — availability for a date (e.g. /debug avail 2025-04-25)")
+                elif parts[1] == "guests":
+                    for g in pms._data["guests"]:
+                        print(f"  {g['id']}: {g['first_name']} {g['last_name']} ({g['email']})")
+                elif parts[1] == "res":
+                    for r in pms._data["reservations"]:
+                        room = pms.get_room_type(r["room_type_id"])
+                        room_name = room.name if room else r["room_type_id"]
+                        print(f"  {r['id']}: {r['guest_id']} | {room_name} | {r['check_in']} to {r['check_out']} | {r['status']} | {r['total_amount']} NOK")
+                elif parts[1] == "avail" and len(parts) == 3:
+                    date_str = parts[2]
+                    avail = pms._data["availability"].get(date_str, {})
+                    if avail:
+                        for rt_id, count in avail.items():
+                            room = pms.get_room_type(rt_id)
+                            name = room.name if room else rt_id
+                            print(f"  {name} ({rt_id}): {count} room(s)")
+                    else:
+                        print(f"  No availability data for {date_str}")
+                else:
+                    print(f"  Unknown debug command: {cmd}")
             elif cmd == "/approve":
                 if pending_result and pending_result.action_plan:
                     from app.models import SkillResult

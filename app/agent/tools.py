@@ -108,16 +108,27 @@ def _search_guest(params: dict, pms: PMS) -> str:
     return json.dumps({"found": False, "message": "No guest found with that email."})
 
 
+def _enrich_reservation(res_data: dict, pms: PMS) -> dict:
+    """Add room type name and rate plan name to a reservation dict."""
+    room = pms.get_room_type(res_data["room_type_id"])
+    rate = pms.get_rate_plan(res_data["rate_plan_id"])
+    res_data["room_type_name"] = room.name if room else res_data["room_type_id"]
+    res_data["rate_plan_name"] = rate.name if rate else res_data["rate_plan_id"]
+    return res_data
+
+
 def _get_reservation(params: dict, pms: PMS) -> str:
     res = pms.get_reservation(params["reservation_id"])
     if res:
-        return json.dumps({"reservation": res.model_dump()})
+        return json.dumps({"reservation": _enrich_reservation(res.model_dump(), pms)})
     return json.dumps({"error": "Reservation not found."})
 
 
 def _get_guest_reservations(params: dict, pms: PMS) -> str:
     reservations = pms.get_reservations(params["guest_id"])
-    return json.dumps({"reservations": [r.model_dump() for r in reservations]})
+    return json.dumps({
+        "reservations": [_enrich_reservation(r.model_dump(), pms) for r in reservations]
+    })
 
 
 def _check_availability(params: dict, pms: PMS) -> str:

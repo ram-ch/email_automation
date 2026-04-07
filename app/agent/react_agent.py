@@ -62,7 +62,7 @@ def process_email(
         response = client.messages.create(
             model=settings.model,
             max_tokens=4096,
-            system=get_system_prompt(today=today),
+            system=get_system_prompt(today=today, approval_mode=settings.approval_mode),
             tools=all_tools,
             messages=messages,
         )

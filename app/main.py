@@ -85,12 +85,12 @@ def _terminal_log(entry: dict) -> None:
     """Print agent activity to the server terminal in real time."""
     t = entry.get("type", "")
     if t == "incoming":
-        print(f"\n{'━' * 56}")
+        print(f"\n{'=' * 56}")
         print(f"  Incoming Email")
         print(f"  From: {entry['sender']}")
         body_preview = entry['body'][:100] + ('...' if len(entry['body']) > 100 else '')
         print(f"  Body: \"{body_preview}\"")
-        print(f"{'━' * 56}")
+        print(f"{'=' * 56}")
     elif t == "thinking":
         text = entry.get("text", "")
         # Show first 2 lines of reasoning, keep it concise
@@ -98,7 +98,7 @@ def _terminal_log(entry: dict) -> None:
         preview = lines[0][:150]
         if len(lines) > 1:
             preview += f" (+{len(lines) - 1} more lines)"
-        print(f"  💭 {preview}")
+        print(f"  [thinking] {preview}")
     elif t in ("tool", "skill"):
         label = "skill" if t == "skill" else "tool"
         name = entry.get("name", "")
@@ -109,9 +109,9 @@ def _terminal_log(entry: dict) -> None:
         print(f"  [iteration {entry.get('iteration', '?')}] {label}: {name} -> {short}")
     elif t == "result":
         if entry.get("risk_flag"):
-            print(f"\n  ⚠️  Escalated: {entry['risk_flag']}")
+            print(f"\n  [ESCALATED] {entry['risk_flag']}")
         elif not entry.get("has_actions"):
-            print(f"\n  ℹ️  Read-only request — no actions needed.")
+            print(f"\n  [INFO] Read-only request -- no actions needed.")
 
 
 def _prompt_approval(result: AgentResponse, pms: PMS, hotel_info: dict, mode: str) -> EmailResponse:
@@ -122,7 +122,7 @@ def _prompt_approval(result: AgentResponse, pms: PMS, hotel_info: dict, mode: st
     print(f"\n  --- Mode: {mode} ---")
 
     while True:
-        decision = input("  ⏳ Type 'approve' or 'reject': ").strip().lower()
+        decision = input("  >> Type 'approve' or 'reject': ").strip().lower()
         if decision in ("approve", "reject"):
             break
         print("    Please type 'approve' or 'reject'.")
@@ -139,7 +139,7 @@ def _prompt_approval(result: AgentResponse, pms: PMS, hotel_info: dict, mode: st
             draft_reply=result.draft_reply,
         )
         _execute_action_plan(skill_result, pms)
-        print("  ✅ Actions executed.")
+        print("  [OK] Actions executed.")
         return EmailResponse(
             email_html=render_email_html(body_text=result.draft_reply, **hotel_info),
             action_plan=action_plan_out,
@@ -149,7 +149,7 @@ def _prompt_approval(result: AgentResponse, pms: PMS, hotel_info: dict, mode: st
             status="approved",
         )
     else:
-        print("  ❌ Actions rejected. No changes to PMS.")
+        print("  [REJECTED] No changes to PMS.")
         return EmailResponse(
             email_html=render_email_html(body_text=REJECTION_TEXT, **hotel_info),
             action_plan=action_plan_out,
@@ -224,7 +224,7 @@ def create_app(settings: Settings | None = None, pms: PMS | None = None) -> Fast
             print(f"\n  --- Action Plan (auto-executed) ---")
             for i, step in enumerate(result.action_plan, 1):
                 print(f"    {i}. {step.description}")
-            print(f"  ✅ Actions auto-executed (autonomous mode).")
+            print(f"  [OK] Actions auto-executed (autonomous mode).")
             email_response = EmailResponse(
                 email_html=render_email_html(body_text=result.draft_reply, **hotel_info),
                 action_plan=action_plan_out,

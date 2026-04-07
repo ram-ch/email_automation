@@ -95,6 +95,15 @@ def process_email(
                     })
             messages.append({"role": "assistant", "content": assistant_content})
 
+            # Log agent reasoning (text blocks that accompany tool calls)
+            for block in response.content:
+                if block.type == "text" and block.text.strip():
+                    _log({
+                        "type": "thinking",
+                        "text": block.text.strip(),
+                        "iteration": _iteration + 1,
+                    })
+
             # Dispatch each tool/skill call
             tool_results = []
             for block in response.content:

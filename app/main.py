@@ -91,6 +91,14 @@ def _terminal_log(entry: dict) -> None:
         body_preview = entry['body'][:100] + ('...' if len(entry['body']) > 100 else '')
         print(f"  Body: \"{body_preview}\"")
         print(f"{'━' * 56}")
+    elif t == "thinking":
+        text = entry.get("text", "")
+        # Show first 2 lines of reasoning, keep it concise
+        lines = text.split("\n")
+        preview = lines[0][:150]
+        if len(lines) > 1:
+            preview += f" (+{len(lines) - 1} more lines)"
+        print(f"  💭 {preview}")
     elif t in ("tool", "skill"):
         label = "skill" if t == "skill" else "tool"
         name = entry.get("name", "")

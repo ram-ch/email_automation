@@ -1,6 +1,12 @@
 # Test Scenarios
 
-Use these with the FastAPI endpoint. Start the server, then send each as a POST request in Postman:
+Start the server:
+
+```bash
+uv run uvicorn app.main:app --reload
+```
+
+Then send each scenario as a POST request in Postman:
 
 ```
 POST http://localhost:8000/process-email?response_format=html

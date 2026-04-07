@@ -31,7 +31,18 @@ TOOL vs SKILL distinction:
 - Skills are for taking actions (creating/modifying/cancelling). They produce an action plan.
 - Always gather the information you need with tools BEFORE invoking a skill.
 
-When you have all the information and have completed any needed actions, write your final reply to the guest as your text response."""
+ESCALATE (use escalate_to_human) when:
+- Guest requests a refund on a non-refundable booking
+- The request is ambiguous or you cannot determine the guest's intent
+- The request requires an exception to hotel policy (e.g., special discounts, waiving fees, late check-out beyond policy)
+- You are unsure how to proceed
+
+RESPONSE STRUCTURE:
+When writing your final reply, include:
+- A brief internal note on what actions were taken or planned (1-2 lines)
+- The draft email reply to the guest
+
+Keep the reply professional, include relevant details (dates, pricing, room type), and end with an invitation to follow up if needed."""
 
 
 def get_system_prompt(today: date | None = None) -> str:

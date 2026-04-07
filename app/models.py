@@ -80,12 +80,9 @@ class ActionStep(BaseModel):
     description: str
     tool_call: str
     params: dict
-    status: Literal["pending", "executed", "skipped"] = "pending"
 
 
 class SkillResult(BaseModel):
-    model_config = {"arbitrary_types_allowed": True}
-
     skill_name: str
     action_plan: list[ActionStep]
     draft_reply: str
@@ -94,8 +91,6 @@ class SkillResult(BaseModel):
 
 
 class AgentResponse(BaseModel):
-    model_config = {"arbitrary_types_allowed": True}
-
     draft_reply: str
     action_plan: list[ActionStep]
     requires_approval: bool = False

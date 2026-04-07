@@ -18,21 +18,27 @@ uv run pytest tests/ -v
 uv run uvicorn app.main:app --reload
 ```
 
-Then send requests via Postman or curl:
+### Testing with Postman
 
-```bash
-# JSON response (action plan + metadata + email HTML)
-curl -X POST http://localhost:8000/process-email \
-  -H "Content-Type: application/json" \
-  -d '{"sender_email": "someone@email.com", "body": "Do you have rooms April 20-22?"}'
+1. Open Postman and create a new request
+2. Set method to **POST** and URL to `http://localhost:8000/process-email?response_format=html`
+3. Go to **Body** tab, select **raw**, choose **JSON** from the dropdown
+4. Paste a scenario body:
+   ```json
+   {
+     "sender_email": "someone@email.com",
+     "body": "Do you have any available rooms April 20th-22nd?"
+   }
+   ```
+5. Click **Send**
+6. In the response area, click the **Preview** tab to see the rendered guest email
+7. Check the server terminal for agent reasoning, tool calls, and action plans
 
-# HTML response (rendered email, viewable in Postman Preview tab)
-curl -X POST "http://localhost:8000/process-email?response_format=html" \
-  -H "Content-Type: application/json" \
-  -d '{"sender_email": "someone@email.com", "body": "Do you have rooms April 20-22?"}'
-```
+In `human_approval` mode, the Postman request will wait while the server terminal prompts for `approve` or `reject`. Type your decision in the terminal and the response will appear in Postman.
 
-See `scenarios.md` for all test scenarios with ready-to-paste JSON bodies.
+For the JSON response with full metadata (action plan, status, mode, risk flag), use the URL without the query parameter: `http://localhost:8000/process-email`
+
+See `scenarios.md` for all 15 test scenarios with ready-to-paste JSON bodies.
 
 ### Configuration
 

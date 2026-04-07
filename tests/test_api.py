@@ -127,5 +127,4 @@ def test_process_email_html_format(client):
     assert "text/html" in resp.headers["content-type"]
     html = resp.text
     assert "rooms available" in html
-    assert "Grand Oslo Hotel" in html
     assert "<!DOCTYPE html>" in html

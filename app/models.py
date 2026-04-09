@@ -82,20 +82,6 @@ class PendingAction(BaseModel):
     description: str
 
 
-class ActionStep(BaseModel):
-    description: str
-    tool_call: str
-    params: dict
-
-
-class SkillResult(BaseModel):
-    skill_name: str
-    action_plan: list[ActionStep]
-    draft_reply: str
-    requires_approval: bool = False
-    risk_flag: str | None = None
-
-
 class AgentResponse(BaseModel):
     draft_reply: str
     action_plan: list[PendingAction]

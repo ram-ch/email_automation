@@ -4,7 +4,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from app.models import AgentResponse, ActionStep
+from app.models import AgentResponse, PendingAction
 
 
 @pytest.fixture
@@ -55,9 +55,9 @@ def test_process_email_autonomous_with_actions(client):
     mock_response = AgentResponse(
         draft_reply="Your room has been booked.",
         action_plan=[
-            ActionStep(
+            PendingAction(
                 description="Create reservation: Standard Double",
-                tool_call="create_reservation",
+                tool_name="create_reservation",
                 params={"guest_id": "G001"},
             )
         ],

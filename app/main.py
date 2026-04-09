@@ -6,9 +6,9 @@ from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-from app.agent.react_agent import process_email, _execute_action_plan
+from app.agent.react_agent import process_email, execute_pending_actions
 from app.config import Settings, load_settings
-from app.models import AgentResponse, SkillResult
+from app.models import AgentResponse, PendingAction
 from app.services.pms import PMS
 from app.templates import render_email_html
 
@@ -47,7 +47,7 @@ def _get_hotel_info(pms: PMS, sender_email: str = "") -> dict:
 
 
 def _summarize_result(tool_name: str, raw_summary: str) -> str:
-    """Generate a short, clean summary for a tool/skill result."""
+    """Generate a short, clean summary for a tool result."""
     try:
         parsed = json.loads(raw_summary)
     except Exception:
@@ -61,10 +61,12 @@ def _summarize_result(tool_name: str, raw_summary: str) -> str:
                 guest = parsed["guest"]
                 return f"found {guest.get('id', '')} ({guest.get('first_name', '')} {guest.get('last_name', '')})"
             return "not found"
-        if "skill_name" in parsed:
-            return "action plan ready"
+        if parsed.get("status") == "pending_approval":
+            return "pending approval"
+        if parsed.get("escalated"):
+            reason = parsed.get("reason", "")
+            return f"escalated: {reason[:50]}"
 
-    # Name-based fallbacks for results too large to parse
     fallbacks = {
         "check_availability": "availability loaded",
         "get_rate_plans": "rate plans loaded",
@@ -73,9 +75,10 @@ def _summarize_result(tool_name: str, raw_summary: str) -> str:
         "get_reservation": "reservation found",
         "get_guest_reservations": "reservations loaded",
         "search_guest": "lookup complete",
-        "book_room": "action plan ready",
-        "cancel_reservation": "action plan ready",
-        "modify_reservation": "action plan ready",
+        "create_guest": "guest created",
+        "create_reservation": "reservation created",
+        "modify_reservation": "reservation updated",
+        "cancel_reservation": "reservation cancelled",
         "escalate_to_human": "escalated",
     }
     return fallbacks.get(tool_name, "done")
@@ -99,12 +102,11 @@ def _terminal_log(entry: dict) -> None:
         if len(lines) > 1:
             preview += f" (+{len(lines) - 1} more lines)"
         print(f"  [thinking] {preview}")
-    elif t in ("tool", "skill"):
-        label = "skill" if t == "skill" else "tool"
+    elif t == "tool":
+        is_write = entry.get("is_write", False)
+        label = "write" if is_write else "tool"
         name = entry.get("name", "")
         summary = entry.get("result_summary", "")
-
-        # Try to parse JSON for dynamic info, fall back to name-based summary
         short = _summarize_result(name, summary)
         print(f"  [iteration {entry.get('iteration', '?')}] {label}: {name} -> {short}")
     elif t == "result":
@@ -117,8 +119,8 @@ def _terminal_log(entry: dict) -> None:
 def _prompt_approval(result: AgentResponse, pms: PMS, hotel_info: dict, mode: str) -> EmailResponse:
     """Block and prompt the operator for approval in the terminal."""
     print(f"\n  --- Action Plan ---")
-    for i, step in enumerate(result.action_plan, 1):
-        print(f"    {i}. {step.description}")
+    for i, action in enumerate(result.action_plan, 1):
+        print(f"    {i}. {action.description}")
     print(f"\n  --- Mode: {mode} ---")
 
     while True:
@@ -128,17 +130,12 @@ def _prompt_approval(result: AgentResponse, pms: PMS, hotel_info: dict, mode: st
         print("    Please type 'approve' or 'reject'.")
 
     action_plan_out = [
-        {"step": i + 1, "description": s.description}
-        for i, s in enumerate(result.action_plan)
+        {"step": i + 1, "description": a.description}
+        for i, a in enumerate(result.action_plan)
     ]
 
     if decision == "approve":
-        skill_result = SkillResult(
-            skill_name="approved",
-            action_plan=result.action_plan,
-            draft_reply=result.draft_reply,
-        )
-        _execute_action_plan(skill_result, pms)
+        execute_pending_actions(result.action_plan, pms)
         print("  [OK] Actions executed.")
         return EmailResponse(
             email_html=render_email_html(body_text=result.draft_reply, **hotel_info),

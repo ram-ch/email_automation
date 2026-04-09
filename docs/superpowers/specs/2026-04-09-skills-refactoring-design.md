@@ -1,16 +1,5 @@
 # Skills Refactoring — Standard Agent Architecture
 
-## Problem
-
-The current codebase misinterprets several agent ecosystem concepts:
-
-1. **Skills are Python code** — should be markdown instruction files
-2. **Tool/Skill split is artificial** — read tools vs. write "skills" should all be tools
-3. **System prompt does the job of skills** — workflow instructions embedded in the prompt instead of skill files
-4. **Code produces the action plan** — the LLM should orchestrate step-by-step, guided by skills
-5. **`SkillResult` / `ActionStep` are custom abstractions** — no ecosystem equivalent; tools should return data, not plans
-6. **`draft_reply` produced by skills** — response composition is the LLM's job
-
 ## Goal
 
 Refactor agent internals to follow standard agent architecture: **skills instruct, tools execute, the LLM orchestrates**. External API (`/process-email` endpoint, response shape, terminal output) stays the same.
@@ -19,10 +8,10 @@ Refactor agent internals to follow standard agent architecture: **skills instruc
 
 ### Skills — Markdown Workflow Instructions
 
-Skills become `.md` files in a `skills/` directory. Each file describes a workflow the LLM follows when handling a specific type of request. All skill files are loaded at startup and injected into the system prompt under a `SKILLS` heading.
+Skills become `.md` files in `app/agent/skills/`. Each file describes a workflow the LLM follows when handling a specific type of request. All skill files are loaded at startup and injected into the system prompt under a `SKILLS` heading.
 
 ```
-skills/
+app/agent/skills/
   book_room.md
   cancel_reservation.md
   modify_reservation.md
@@ -70,8 +59,21 @@ Write tools follow the same pattern as read tools: receive params, call PMS, ret
 
 `escalate_to_human` is NOT a write tool — it executes immediately in both modes. It does not get intercepted for approval. It signals that the request needs human staff attention and sets the `risk_flag` on the `AgentResponse`.
 
+**Directory structure:** Tools move from a single `tools.py` into an `app/agent/tools/` package:
+
+```
+app/agent/tools/
+  __init__.py          # get_tool_schemas(), execute_tool() — public API
+  read_tools.py        # 7 read tool schemas + handlers
+  write_tools.py       # 4 write tool schemas + handlers
+  escalation.py        # escalate_to_human schema + handler
+```
+
+`__init__.py` re-exports `get_tool_schemas()` and `execute_tool()` so existing imports (`from app.agent.tools import ...`) continue to work unchanged.
+
 **Deleted:**
-- `skills.py` — entirely removed
+- `app/agent/skills.py` — entirely removed, replaced by `app/agent/skills/*.md`
+- `app/agent/tools.py` — replaced by `app/agent/tools/` package
 - `get_skill_schemas()` / `execute_skill()` — gone
 - `SkillResult` model — gone
 - `ActionStep` model — gone
@@ -195,29 +197,33 @@ All agent tests use mocked LLM responses.
 
 **New files:**
 ```
-skills/book_room.md
-skills/cancel_reservation.md
-skills/modify_reservation.md
-skills/escalate.md
+app/agent/skills/book_room.md
+app/agent/skills/cancel_reservation.md
+app/agent/skills/modify_reservation.md
+app/agent/skills/escalate.md
+app/agent/tools/__init__.py
+app/agent/tools/read_tools.py
+app/agent/tools/write_tools.py
+app/agent/tools/escalation.py
 ```
 
 **Modified files:**
 
 | File | Change |
 |---|---|
-| `app/agent/tools.py` | Add 4 write tool schemas + handlers + `escalate_to_human` tool |
-| `app/agent/prompts.py` | Restructure to persona + guardrails + skill loader |
+| `app/agent/prompts.py` | Restructure to persona + guardrails + skill loader (reads `app/agent/skills/*.md`) |
 | `app/agent/react_agent.py` | Remove skill dispatch, add write tool interception, build action plan from intercepted calls |
 | `app/models.py` | Remove `SkillResult`, `ActionStep`, add `PendingAction` |
 | `app/main.py` | Update `_execute_action_plan` to replay intercepted tool calls, update `_summarize_result` |
-| `tests/test_tools.py` | Add write tool tests |
+| `tests/test_tools.py` | Add write tool + escalation tool tests |
 | `tests/test_agent.py` | Update existing 3 scenarios, add 5 new scenarios |
 
 **Deleted files:**
 
 | File | Reason |
 |---|---|
-| `app/agent/skills.py` | Replaced by `skills/*.md` + write tools |
+| `app/agent/skills.py` | Replaced by `app/agent/skills/*.md` + `app/agent/tools/write_tools.py` |
+| `app/agent/tools.py` | Replaced by `app/agent/tools/` package |
 | `tests/test_skills.py` | Covered by expanded `test_tools.py` and `test_agent.py` |
 
 **Unchanged files:**

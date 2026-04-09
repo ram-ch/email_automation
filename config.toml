@@ -1,6 +1,6 @@
 [agent]
 model = "claude-sonnet-4-20250514"
-approval_mode = "human_approval"   # "human_approval" or "autonomous"
+approval_mode = "autonomous"   # "human_approval" or "autonomous"
 max_iterations = 15
 
 [hotel]

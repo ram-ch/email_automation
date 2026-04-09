@@ -11,9 +11,6 @@ uv sync
 # Set your API key
 echo "ANTHROPIC_API_KEY=your-key-here" > .env
 
-# Run tests (no API key needed)
-uv run pytest tests/ -v
-
 # Start the server
 uv run uvicorn app.main:app --reload
 ```

@@ -4,6 +4,48 @@
 
 Refactor agent internals to follow standard agent architecture: **skills instruct, tools execute, the LLM orchestrates**. External API (`/process-email` endpoint, response shape, terminal output) stays the same.
 
+## Project Structure (After Refactoring)
+
+```
+hotel_aiemail/
+├── pyproject.toml
+├── config.toml
+├── data/
+│   └── mock_hotel_data.json
+├── app/
+│   ├── __init__.py
+│   ├── config.py
+│   ├── models.py                    # Remove SkillResult/ActionStep, add PendingAction
+│   ├── main.py                      # Updated to replay intercepted tool calls
+│   ├── templates.py
+│   ├── agent/
+│   │   ├── __init__.py
+│   │   ├── react_agent.py           # Write tool interception + approval gating
+│   │   ├── prompts.py               # Persona + guardrails + skill loader
+│   │   ├── skills/                   # NEW — markdown workflow instructions
+│   │   │   ├── book_room.md
+│   │   │   ├── cancel_reservation.md
+│   │   │   ├── modify_reservation.md
+│   │   │   └── escalate.md
+│   │   └── tools/                    # REPLACES tools.py — Python package
+│   │       ├── __init__.py           # get_tool_schemas(), execute_tool()
+│   │       ├── read_tools.py         # 7 read tool schemas + handlers
+│   │       ├── write_tools.py        # 4 write tool schemas + handlers
+│   │       └── escalation.py         # escalate_to_human schema + handler
+│   └── services/
+│       ├── __init__.py
+│       └── pms.py                    # Unchanged
+├── tests/
+│   ├── __init__.py
+│   ├── conftest.py
+│   ├── test_pms.py                   # Unchanged
+│   ├── test_tools.py                 # Extended with write + escalation tool tests
+│   └── test_agent.py                 # Expanded from 3 to 8 scenarios
+└── README.md
+```
+
+**Deleted files:** `app/agent/skills.py`, `app/agent/tools.py`, `tests/test_skills.py`
+
 ## Architecture
 
 ### Skills — Markdown Workflow Instructions

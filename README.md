@@ -62,58 +62,94 @@ port = 8000
 
 Change `approval_mode` and restart the server to switch modes.
 
-## Architecture Overview
+## Architecture
 
 ```
 Guest Email (Postman) --> FastAPI Endpoint --> ReAct Agent Loop --> Draft Reply + Action Plan
                                                     |
                                           +---------+---------+
-                                          |                   |
-                                       Tools               Skills
-                                    (read-only)        (write workflows)
-                                          |                   |
+                                          |         |         |
+                                        Skills    Tools    Guardrails
+                                       (.md)    (read+write)  (prompt)
+                                          |         |         |
                                           +---------+---------+
                                                     |
                                                Mock PMS
                                           (in-memory JSON)
 ```
 
-### Two-Layer Action System
+### Skills, Tools, and Guardrails
 
-The agent has access to **tools** and **skills** — this is the core architectural decision:
+The agent follows standard agent architecture with three layers:
 
-- **Tools** are atomic, read-only PMS lookups: `search_guest`, `check_availability`, `get_rate_plans`, `get_policies`, `get_hotel_info`, `get_reservation`, `get_guest_reservations`. The agent calls these freely to gather information.
+**Skills** are markdown instruction files (`app/agent/skills/*.md`) that guide the LLM on how to handle each type of request. When a guest wants to book a room, the LLM reads the booking skill and follows its steps: search the guest, check availability, get rate plans, then call the write tool. Skills instruct — they don't execute.
 
-- **Skills** are composed, multi-step workflows that perform writes: `book_room`, `modify_reservation`, `cancel_reservation`, `escalate_to_human`. Each skill validates inputs, checks preconditions, and produces an **action plan** (list of steps) and a **draft reply** before executing any writes.
+**Tools** are all the operations the LLM can call — both read and write. There are 12 tools total:
 
-This separation enables clean approval gating — writes only happen through skills, and skills can be paused for human review.
+| Tool | Type | Purpose |
+|------|------|---------|
+| `search_guest` | Read | Find guest by email |
+| `get_reservation` | Read | Get reservation details |
+| `get_guest_reservations` | Read | List guest's reservations |
+| `check_availability` | Read | Available rooms for a date range |
+| `get_rate_plans` | Read | Rate plans with pricing |
+| `get_policies` | Read | Hotel policies |
+| `get_hotel_info` | Read | Hotel metadata |
+| `create_guest` | Write | Create a guest profile |
+| `create_reservation` | Write | Book a room |
+| `modify_reservation` | Write | Change a reservation |
+| `cancel_reservation` | Write | Cancel a reservation |
+| `escalate_to_human` | Escalation | Flag for human staff |
+
+**Guardrails** are explicit rules in the system prompt that prevent costly LLM mistakes: never cancel a non-refundable booking (escalate instead), never book without checking availability first, never substitute a room type without asking, verify sender identity before modifying reservations.
+
+### How the LLM Orchestrates
+
+The LLM drives the workflow. It reads the skill instructions, calls tools step by step, reasons about each result, and composes the final email. The orchestrator (`react_agent.py`) handles the mechanics: dispatching tool calls, intercepting writes for approval, and assembling the response.
+
+For example, when a guest asks to book a room:
+1. LLM calls `search_guest` — finds the guest
+2. LLM calls `check_availability` — sees rooms available
+3. LLM calls `get_rate_plans` — picks the right rate
+4. LLM calls `create_reservation` — orchestrator intercepts this write
+5. LLM composes the confirmation email
+6. Operator approves or rejects the action plan
 
 ### Approval Modes
 
-Configured via `approval_mode` in `config.toml`:
+**Human approval mode** (`human_approval`): Write tools are intercepted — they don't execute until the operator approves. The server terminal displays the action plan and prompts for `approve` or `reject`. Read tools execute freely.
 
-**Human approval mode** (`human_approval`): The agent gathers information using tools, then invokes skills to produce an action plan and draft reply. No write actions are executed. The server terminal displays the action plan and prompts the operator to type `approve` or `reject`. Only after approval does the system execute PMS writes and return the final email.
+**Autonomous mode** (`autonomous`): All tools execute immediately. However, escalations (via `escalate_to_human`) still flag the response for human review — the agent never silently processes risky requests.
 
-**Fully autonomous mode** (`autonomous`): The agent executes the full workflow end-to-end without human confirmation. However, requests flagged as risky (e.g., refund on non-refundable booking) are automatically escalated — no PMS writes happen and the guest receives an escalation email.
+**Escalation** (both modes): When the LLM follows a guardrail and calls `escalate_to_human`, the response gets a risk flag. No PMS writes happen. The guest receives an email explaining their request has been forwarded to staff.
 
-**Escalation behavior** (both modes): When a risk flag is present, the system never executes PMS writes. The agent drafts an escalation email to the guest ("we've forwarded this to our team") and the terminal logs the escalation reason. There is no override mechanism — risky requests always require human follow-up outside the system.
+### Safety Stack
+
+Four layers prevent bad writes, no single layer is solely responsible:
+
+| Layer | What it catches |
+|-------|----------------|
+| **Skills** (.md instructions) | LLM follows the correct workflow order |
+| **Guardrails** (system prompt) | LLM avoids costly mistakes (non-refundable cancellation, booking without availability check) |
+| **Approval gate** (orchestrator) | Human reviews write tools before execution (human_approval mode only) |
+| **PMS validation** (data layer) | Rejects impossible writes (no rooms available, already cancelled) |
 
 ### ReAct Loop
 
 The agent runs a Reason-Act-Observe cycle:
 
-1. Claude receives the guest email + system prompt + all tool/skill schemas
-2. Claude reasons about what's needed and calls a tool or skill
-3. The tool/skill result is fed back as an observation
+1. Claude receives the guest email + system prompt (persona, guardrails, skills) + all 12 tool schemas
+2. Claude reasons about what's needed and calls a tool
+3. The tool result is fed back as an observation
 4. Claude reasons again — repeat until it produces a final text response
 5. The text response becomes the draft reply to the guest
 
-Max 15 iterations to prevent runaway loops. The server terminal shows real-time agent reasoning, tool calls, and results as each iteration executes.
+Max 15 iterations. The server terminal shows real-time agent reasoning, tool calls, and results.
 
 ### Presentation Layer
 
-- **Postman** shows the guest-facing output: JSON with the HTML email + metadata, or just the rendered HTML email via `?response_format=html`
-- **Server terminal** shows the operator view: agent thinking, tool/skill calls, action plans, and approval prompts
+- **Postman** shows the guest-facing output: JSON with the HTML email + metadata, or rendered HTML via `?response_format=html`
+- **Server terminal** shows the operator view: agent thinking, tool calls (labeled `[tool]` for reads, `[write]` for writes), action plans, and approval prompts
 
 ## Project Structure
 
@@ -122,62 +158,52 @@ hotel_aiemail/
 ├── app/
 │   ├── main.py              # FastAPI app, POST /process-email, terminal logging, approval flow
 │   ├── config.py            # Settings from .env (secrets) + config.toml (app config)
-│   ├── models.py            # Pydantic models (Guest, Reservation, ActionStep, SkillResult, etc.)
+│   ├── models.py            # Pydantic models (Guest, Reservation, PendingAction, AgentResponse)
 │   ├── templates.py         # HTML email rendering with markdown-to-HTML conversion
 │   ├── agent/
-│   │   ├── react_agent.py   # ReAct loop, LLM interaction, action plan execution
-│   │   ├── prompts.py       # System prompt template
-│   │   ├── tools.py         # 7 read-only tool definitions + dispatcher
-│   │   └── skills.py        # 4 write workflow implementations + dispatcher
+│   │   ├── react_agent.py   # ReAct loop, write tool interception, approval gating
+│   │   ├── prompts.py       # System prompt (persona + guardrails) + skill loader
+│   │   ├── skills/          # Markdown workflow instructions
+│   │   │   ├── book_room.md
+│   │   │   ├── cancel_reservation.md
+│   │   │   ├── modify_reservation.md
+│   │   │   └── escalate.md
+│   │   └── tools/           # All 12 tool schemas + handlers
+│   │       ├── __init__.py  # get_tool_schemas(), execute_tool(), WRITE_TOOL_NAMES
+│   │       ├── read_tools.py
+│   │       ├── write_tools.py
+│   │       └── escalation.py
 │   └── services/
 │       └── pms.py           # In-memory PMS (mock hotel data)
 ├── data/
 │   └── mock_hotel_data.json # Mock PMS data (rooms, guests, reservations, availability)
-├── tests/                   # 56 tests, all run without an API key
-│   ├── test_pms.py          # 19 tests — PMS read/write operations, availability, pricing
-│   ├── test_tools.py        # 9 tests — tool dispatch, error handling
-│   ├── test_skills.py       # 8 tests — skill orchestration, escalation rules
-│   ├── test_agent.py        # 3 tests — full ReAct loop with mocked LLM (all 3 required scenarios)
-│   ├── test_api.py          # 5 tests — FastAPI endpoint, response formats, validation
-│   ├── test_config.py       # 3 tests — TOML loading, defaults, overrides
-│   ├── test_templates.py    # 7 tests — HTML rendering, markdown conversion, To/From
-│   └── test_logging_callback.py # 2 tests — logging callback, backward compatibility
+├── tests/                   # 60 tests, all run without an API key
 ├── config.toml              # App configuration (mode, model, simulated date)
 ├── scenarios.md             # 15 test scenarios with ready-to-paste Postman bodies
 └── pyproject.toml           # Dependencies (anthropic, pydantic, fastapi, uvicorn)
 ```
 
-## Key Design Decisions
+## Design Decisions
 
-### Tools vs Skills
+### Standard Agent Architecture
 
-The task spec calls out "the usage of skills vs tools and how it performs full workflows" as critical. Rather than giving the LLM a flat list of CRUD operations, the system separates:
+The agent follows the standard pattern: **skills instruct, tools execute, the LLM orchestrates**. Skills are markdown files that describe workflows. Tools handle both reads and writes. The LLM reasons through each step, calling tools as needed. The orchestrator intercepts write tools for approval gating.
 
-- **Tools** for information gathering (no side effects, call freely)
-- **Skills** for actions (validate, produce a reviewable plan, then execute)
+### Write Tool Interception
 
-This means the LLM decides *what* skill to invoke and *with what parameters*, but the skill itself orchestrates the multi-step PMS workflow. The LLM doesn't need to remember to "first check availability, then create guest, then create reservation" — the `book_room` skill handles that sequence, validates preconditions, and calculates pricing.
+Instead of building a custom action-plan framework, the orchestrator intercepts write tool calls at the dispatch level. In human approval mode, write tools return a "pending approval" stub to the LLM and get recorded as `PendingAction` entries. After the LLM finishes reasoning, the collected actions are presented to the operator. This keeps the LLM in control of orchestration while the system controls execution.
 
-### Deferred Execution via SkillResult
+### Guardrails Over Code Validation
 
-Skills return a `SkillResult` containing:
-- `action_plan`: List of `ActionStep` objects describing what will happen
-- `draft_reply`: Email text for the guest
-- `risk_flag`: If set, blocks execution even in autonomous mode
-
-In human approval mode, the agent loop returns the plan without executing it. The FastAPI endpoint then blocks on terminal input until the operator approves or rejects. In autonomous mode, the agent loop executes the plan immediately (unless risk-flagged).
-
-### Escalation as a Skill
-
-`escalate_to_human` is a skill, not a special case. The LLM treats escalation the same as any other action. Additionally, `cancel_reservation` and `modify_reservation` auto-escalate for non-refundable bookings at the skill level, providing a safety net even if the LLM misjudges.
+Business rules (don't cancel non-refundable bookings, always check availability before booking) are enforced as guardrails in the system prompt rather than as validation logic inside tools. This keeps tools thin and composable. The approval gate and PMS validation provide additional safety layers.
 
 ### Single Agent, Not Multi-Agent
 
-A supervisor + specialist agent architecture would add complexity without benefit at this scale. One agent with the right tools/skills handles all scenarios cleanly. The task spec says "we do not care about over-engineering."
+One agent with skills, tools, and guardrails handles all scenarios. A supervisor + specialist architecture would add complexity without benefit at this scale.
 
 ### Raw Anthropic SDK
 
-No LangChain, no LangGraph. The ReAct loop is straightforward Python using the Anthropic SDK directly. The evaluator can see exactly how tool dispatch, approval gating, and conversation management work. Nothing is hidden behind framework abstractions.
+No LangChain, no LangGraph. The ReAct loop is straightforward Python using the Anthropic SDK directly. Tool dispatch, approval gating, and conversation management are visible in the code without framework abstractions.
 
 ## Testing
 
@@ -185,23 +211,14 @@ No LangChain, no LangGraph. The ReAct loop is straightforward Python using the A
 uv run pytest tests/ -v
 ```
 
-**56 tests total**, all run without an API key:
+**60 tests total**, all run without an API key:
 
 | Suite | Tests | What it covers |
 |-------|-------|---------------|
 | `test_pms.py` | 19 | PMS read/write operations, availability math, pricing |
-| `test_tools.py` | 9 | Tool dispatch, schema validation, error handling |
-| `test_skills.py` | 8 | Skill orchestration, escalation rules, execution |
-| `test_agent.py` | 3 | Full ReAct loop with mocked LLM for all 3 required scenarios |
+| `test_tools.py` | 16 | All 12 tools: read, write, escalation, schema validation, error handling |
+| `test_agent.py` | 8 | Full ReAct loop with mocked LLM: booking, cancellation, escalation, modification, autonomous mode, multi-action |
 | `test_api.py` | 5 | FastAPI endpoint, JSON/HTML response formats, validation |
-| `test_config.py` | 3 | TOML config loading, defaults, override precedence |
 | `test_templates.py` | 7 | HTML rendering, markdown conversion, To/From display |
-| `test_logging_callback.py` | 2 | Logging callback mechanism, backward compatibility |
-
-## What I Would Improve Next
-
-1. **Conversation threading**: Track email threads so follow-up emails have context from prior exchanges, enabling multi-turn guest conversations
-2. **Persistent PMS**: Replace in-memory JSON with a database so PMS state survives server restarts
-3. **Streaming responses**: Use Claude's streaming API for real-time feedback during long workflows
-4. **Rate plan recommendation**: Add a skill that suggests the best rate plan based on guest preferences and stay length
-5. **Multi-language support**: Detect guest language and respond accordingly (relevant for an Oslo hotel with international guests)
+| `test_config.py` | 3 | TOML config loading, defaults, override precedence |
+| `test_logging_callback.py` | 2 | Logging callback mechanism |

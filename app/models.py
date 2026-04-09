@@ -76,6 +76,12 @@ class Reservation(BaseModel):
     created_at: str
 
 
+class PendingAction(BaseModel):
+    tool_name: str
+    params: dict
+    description: str
+
+
 class ActionStep(BaseModel):
     description: str
     tool_call: str

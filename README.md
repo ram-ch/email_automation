@@ -45,7 +45,7 @@ Secrets go in `.env`, app settings in `config.toml`:
 # config.toml
 [agent]
 model = "claude-sonnet-4-20250514"
-approval_mode = "human_approval"   # "human_approval" or "autonomous"
+approval_mode = "autonomous"   # "human_approval" or "autonomous"
 max_iterations = 15
 
 [hotel]
@@ -151,7 +151,7 @@ Max 15 iterations. The server terminal shows real-time agent reasoning, tool cal
 ## Project Structure
 
 ```
-hotel_aiemail/
+email_automation/
 ├── app/
 │   ├── main.py              # FastAPI app, POST /process-email, terminal logging, approval flow
 │   ├── config.py            # Settings from .env (secrets) + config.toml (app config)

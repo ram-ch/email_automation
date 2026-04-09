@@ -98,7 +98,7 @@ class SkillResult(BaseModel):
 
 class AgentResponse(BaseModel):
     draft_reply: str
-    action_plan: list[ActionStep]
+    action_plan: list[PendingAction]
     requires_approval: bool = False
     risk_flag: str | None = None
     conversation_history: list = []

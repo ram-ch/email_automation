@@ -6,7 +6,7 @@ from datetime import date
 from app.services.pms import PMS
 
 
-TOOL_SCHEMAS: list[dict] = [
+READ_TOOL_SCHEMAS: list[dict] = [
     {
         "name": "search_guest",
         "description": "Search for a guest by their email address. Returns guest profile if found.",
@@ -79,28 +79,6 @@ TOOL_SCHEMAS: list[dict] = [
 ]
 
 
-def get_tool_schemas() -> list[dict]:
-    return TOOL_SCHEMAS
-
-
-def execute_tool(name: str, params: dict, pms: PMS) -> str:
-    handlers = {
-        "search_guest": _search_guest,
-        "get_reservation": _get_reservation,
-        "get_guest_reservations": _get_guest_reservations,
-        "check_availability": _check_availability,
-        "get_rate_plans": _get_rate_plans,
-        "get_policies": _get_policies,
-        "get_hotel_info": _get_hotel_info,
-    }
-
-    handler = handlers.get(name)
-    if not handler:
-        return json.dumps({"error": f"Unknown tool: {name}"})
-
-    return handler(params, pms)
-
-
 def _search_guest(params: dict, pms: PMS) -> str:
     guest = pms.search_guest(params["email"])
     if guest:
@@ -152,3 +130,14 @@ def _get_policies(params: dict, pms: PMS) -> str:
 def _get_hotel_info(params: dict, pms: PMS) -> str:
     hotel = pms.get_hotel_info()
     return json.dumps(hotel.model_dump())
+
+
+READ_TOOL_HANDLERS: dict = {
+    "search_guest": _search_guest,
+    "get_reservation": _get_reservation,
+    "get_guest_reservations": _get_guest_reservations,
+    "check_availability": _check_availability,
+    "get_rate_plans": _get_rate_plans,
+    "get_policies": _get_policies,
+    "get_hotel_info": _get_hotel_info,
+}

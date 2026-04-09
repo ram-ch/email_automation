@@ -7,39 +7,63 @@ from typing import Callable
 import anthropic
 
 from app.agent.prompts import get_system_prompt
-from app.agent.skills import execute_skill, get_skill_schemas
-from app.agent.tools import execute_tool, get_tool_schemas
+from app.agent.tools import WRITE_TOOL_NAMES, execute_tool, get_tool_schemas
 from app.config import Settings
-from app.models import AgentResponse, SkillResult
+from app.models import AgentResponse, PendingAction
 from app.services.pms import PMS
 
 
-def _execute_action_plan(skill_result: SkillResult, pms: PMS) -> None:
-    """Execute a skill's action plan against the PMS.
+def _describe_action(tool_name: str, params: dict) -> str:
+    """Generate a human-readable description for a pending write action."""
+    if tool_name == "create_guest":
+        return f"Create guest profile for {params.get('first_name', '')} {params.get('last_name', '')}"
+    if tool_name == "create_reservation":
+        return (
+            f"Create reservation: {params.get('room_type_id', '')}, "
+            f"{params.get('check_in', '')} to {params.get('check_out', '')}, "
+            f"{params.get('adults', '')} adult(s)"
+        )
+    if tool_name == "modify_reservation":
+        changes = {k: v for k, v in params.items() if k != "reservation_id"}
+        change_desc = ", ".join(f"{k}={v}" for k, v in changes.items())
+        return f"Modify reservation {params.get('reservation_id', '')}: {change_desc}"
+    if tool_name == "cancel_reservation":
+        return f"Cancel reservation {params.get('reservation_id', '')}"
+    return f"{tool_name}: {params}"
 
-    Reads each ActionStep and calls the corresponding PMS write method.
-    Handles the __new_guest__ placeholder for new guest bookings.
+
+def execute_pending_actions(pending_actions: list[PendingAction], pms: PMS) -> None:
+    """Execute pending write actions against the PMS.
+
+    Handles the __pending_guest__ placeholder: when create_guest runs first,
+    subsequent create_reservation calls that reference __pending_guest__ get
+    the real guest ID substituted.
     """
     created_guest_id: str | None = None
 
-    for step in skill_result.action_plan:
-        if step.tool_call == "create_guest":
-            # Skip if guest with this email already exists (e.g., second booking for same new guest)
-            existing = pms.search_guest(step.params.get("email", ""))
+    for action in pending_actions:
+        params = dict(action.params)
+
+        # Resolve pending guest placeholder
+        if (
+            action.tool_name == "create_reservation"
+            and params.get("guest_id") == "__pending_guest__"
+            and created_guest_id
+        ):
+            params["guest_id"] = created_guest_id
+
+        # Deduplicate create_guest: skip if guest already exists
+        if action.tool_name == "create_guest":
+            existing = pms.search_guest(params.get("email", ""))
             if existing:
                 created_guest_id = existing.id
-            else:
-                guest = pms.create_guest(**step.params)
-                created_guest_id = guest.id
-        elif step.tool_call == "create_reservation":
-            params = dict(step.params)
-            if params.get("guest_id") == "__new_guest__" and created_guest_id:
-                params["guest_id"] = created_guest_id
-            pms.create_reservation(**params)
-        elif step.tool_call == "cancel_reservation":
-            pms.cancel_reservation(**step.params)
-        elif step.tool_call == "modify_reservation":
-            pms.modify_reservation(**step.params)
+                continue
+
+        result_str = execute_tool(action.tool_name, params, pms)
+        result = json.loads(result_str)
+
+        if action.tool_name == "create_guest" and "guest" in result:
+            created_guest_id = result["guest"]["id"]
 
 
 def process_email(
@@ -51,9 +75,8 @@ def process_email(
 ) -> AgentResponse:
     """Process a guest email through the ReAct agent loop."""
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    all_tools = get_tool_schemas() + get_skill_schemas()
+    all_tools = get_tool_schemas()
 
-    # Determine today's date (support simulated date for demo with mock data)
     today = date.fromisoformat(settings.simulated_today) if settings.simulated_today else None
 
     messages = [
@@ -69,7 +92,8 @@ def process_email(
 
     _log({"type": "incoming", "sender": sender_email, "body": email_body})
 
-    all_skill_results: list[SkillResult] = []
+    pending_actions: list[PendingAction] = []
+    risk_flag: str | None = None
 
     for _iteration in range(settings.max_iterations):
         response = client.messages.create(
@@ -95,7 +119,7 @@ def process_email(
                     })
             messages.append({"role": "assistant", "content": assistant_content})
 
-            # Log agent reasoning (text blocks that accompany tool calls)
+            # Log agent reasoning
             for block in response.content:
                 if block.type == "text" and block.text.strip():
                     _log({
@@ -104,38 +128,50 @@ def process_email(
                         "iteration": _iteration + 1,
                     })
 
-            # Dispatch each tool/skill call
+            # Dispatch each tool call
             tool_results = []
             for block in response.content:
                 if block.type == "tool_use":
                     tool_name = block.name
                     tool_input = block.input
+                    is_write = tool_name in WRITE_TOOL_NAMES
 
-                    skill_names = {s["name"] for s in get_skill_schemas()}
-                    if tool_name in skill_names:
-                        skill_result = execute_skill(tool_name, tool_input, pms)
-                        all_skill_results.append(skill_result)
+                    if is_write:
+                        # Record pending action
+                        pending_actions.append(PendingAction(
+                            tool_name=tool_name,
+                            params=tool_input,
+                            description=_describe_action(tool_name, tool_input),
+                        ))
 
-                        # In autonomous mode with no risk: execute the plan immediately
-                        if settings.approval_mode == "autonomous" and not skill_result.risk_flag:
-                            _execute_action_plan(skill_result, pms)
-
-                        tool_result_str = json.dumps({
-                            "skill_name": skill_result.skill_name,
-                            "action_plan": [s.model_dump() for s in skill_result.action_plan],
-                            "risk_flag": skill_result.risk_flag,
-                            "note": "Skill completed. If the guest requested additional actions, invoke the next skill now before writing your final reply.",
-                        })
+                        if settings.approval_mode == "autonomous":
+                            tool_result_str = execute_tool(tool_name, tool_input, pms)
+                        else:
+                            # Human approval — intercept, don't execute
+                            pending_response: dict = {"status": "pending_approval"}
+                            if tool_name == "create_guest":
+                                pending_response["placeholder_guest_id"] = "__pending_guest__"
+                            pending_response["note"] = (
+                                "This action has been recorded and will be executed "
+                                "after operator approval. If you need to reference "
+                                "this result, use the placeholder values provided."
+                            )
+                            tool_result_str = json.dumps(pending_response)
+                    elif tool_name == "escalate_to_human":
+                        tool_result_str = execute_tool(tool_name, tool_input, pms)
+                        result_data = json.loads(tool_result_str)
+                        if result_data.get("escalated"):
+                            risk_flag = f"Escalation: {result_data.get('reason', 'Unknown reason')}"
                     else:
                         tool_result_str = execute_tool(tool_name, tool_input, pms)
 
-                    is_skill = tool_name in skill_names
                     _log({
-                        "type": "skill" if is_skill else "tool",
+                        "type": "tool",
                         "name": tool_name,
                         "input": tool_input,
                         "result_summary": tool_result_str[:200],
                         "iteration": _iteration + 1,
+                        "is_write": is_write,
                     })
 
                     tool_results.append({
@@ -147,44 +183,27 @@ def process_email(
             messages.append({"role": "user", "content": tool_results})
 
         elif response.stop_reason == "end_turn":
-            # Extract the text reply
             draft_reply = ""
             for block in response.content:
                 if hasattr(block, "text"):
                     draft_reply += block.text
 
-            # Combine action plans and risk flags from all skill calls
-            action_plan = []
-            seen_guest_emails: set[str] = set()
-            risk_flag = None
-            for sr in all_skill_results:
-                for step in sr.action_plan:
-                    # Deduplicate create_guest steps (same guest across multiple bookings)
-                    if step.tool_call == "create_guest":
-                        email = step.params.get("email", "")
-                        if email in seen_guest_emails:
-                            continue
-                        seen_guest_emails.add(email)
-                    action_plan.append(step)
-                if sr.risk_flag:
-                    risk_flag = sr.risk_flag
-
             requires_approval = False
             if risk_flag:
                 requires_approval = True
-            elif settings.approval_mode == "human_approval" and len(action_plan) > 0:
+            elif settings.approval_mode == "human_approval" and len(pending_actions) > 0:
                 requires_approval = True
 
             _log({
                 "type": "result",
-                "has_actions": len(action_plan) > 0,
+                "has_actions": len(pending_actions) > 0,
                 "requires_approval": requires_approval,
                 "risk_flag": risk_flag,
             })
 
             return AgentResponse(
                 draft_reply=draft_reply,
-                action_plan=action_plan,
+                action_plan=pending_actions,
                 requires_approval=requires_approval,
                 risk_flag=risk_flag,
                 conversation_history=messages,
@@ -193,7 +212,6 @@ def process_email(
         else:
             break
 
-    # Max iterations reached
     return AgentResponse(
         draft_reply="I apologize, but I was unable to fully process your request. A team member will follow up shortly.",
         action_plan=[],
